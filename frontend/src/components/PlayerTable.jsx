@@ -1,23 +1,27 @@
-function PlayerTable({ players, loading, error }) {
-  // Helper: KD color class
-  function kdClass(val) {
-    if (val >= 1.15) return 'kd-good'
-    if (val >= 1.0) return 'kd-neutral'
-    return 'kd-bad'
-  }
-
+function PlayerTable({ players, loading, error, onRowClick }) {
   // Helper: overall badge class
   function overallClass(val) {
-    if (val >= 60) return 'overall-high'
-    if (val >= 40) return 'overall-mid'
+    if (val >= 1.15) return 'overall-high'
+    if (val >= 1.0) return 'overall-mid'
     return 'overall-low'
   }
 
   // Helper: role badge class
   function roleClass(role) {
-    const r = (role || '').toLowerCase()
+    const r = (role || '').toLowerCase().split(' ')[0]
     const map = { awper: 'awper', rifler: 'rifler', igl: 'igl', entry: 'entry', support: 'support', lurker: 'lurker' }
     return map[r] || 'default'
+  }
+
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(price || 0)
+  }
+
+  const getDisplayRating = (player) => {
+    const value = player?.Rating ?? player?.rating ?? player?.overall_rating ?? 0
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) return 0
+    return Number.isInteger(numeric) ? numeric : numeric.toFixed(2)
   }
 
   // Loading skeleton
@@ -28,14 +32,13 @@ function PlayerTable({ players, loading, error }) {
           <table>
             <thead>
               <tr>
-                <th>#</th><th>Player</th><th>Team</th><th>Role</th>
-                <th>K/D</th><th>ADR</th><th>KAST %</th><th>Rating</th><th>Overall</th>
+                <th>#</th><th>Player</th><th>Role</th><th>Overall</th><th>Price</th>
               </tr>
             </thead>
             <tbody>
               {[...Array(3)].map((_, i) => (
                 <tr key={i} className="skeleton-row">
-                  <td colSpan="9"><div className="skeleton" style={{ width: `${90 + i * 5}%` }}></div></td>
+                  <td colSpan="5"><div className="skeleton" style={{ width: `${90 + i * 5}%` }}></div></td>
                 </tr>
               ))}
             </tbody>
@@ -52,7 +55,7 @@ function PlayerTable({ players, loading, error }) {
         <div className="empty-state">
           <div className="icon">⚠️</div>
           <h3>Connection error</h3>
-          <p>Could not reach the API. Make sure the FastAPI server is running on port 8000.</p>
+          <p>Could not reach the API. Make sure the backend server is running.</p>
         </div>
       </div>
     )
@@ -65,7 +68,7 @@ function PlayerTable({ players, loading, error }) {
         <div className="empty-state">
           <div className="icon">🎯</div>
           <h3>No players found</h3>
-          <p>Add players using the API at <code>/docs</code> — they'll show up here automatically.</p>
+          <p>Try adjusting your search criteria.</p>
         </div>
       </div>
     )
@@ -80,27 +83,27 @@ function PlayerTable({ players, loading, error }) {
             <tr>
               <th>#</th>
               <th>Player</th>
-              <th>Team</th>
               <th>Role</th>
-              <th>K/D</th>
-              <th>ADR</th>
-              <th>KAST %</th>
-              <th>Rating</th>
               <th>Overall</th>
+              <th>Price</th>
             </tr>
           </thead>
           <tbody>
             {players.map((player, index) => (
-              <tr key={player.id} className="fade-in" style={{ animationDelay: `${index * 0.04}s` }}>
+              <tr
+                key={player.id}
+                className="fade-in clickable-row"
+                style={{ animationDelay: `${index * 0.04}s` }}
+                onClick={() => onRowClick?.(player)}
+              >
                 <td style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{index + 1}</td>
-                <td className="player-name">{player.name}</td>
-                <td><span className="team-badge">{player.team_id}</span></td>
-                <td><span className={`role-badge ${roleClass(player.role)}`}>{player.role}</span></td>
-                <td className={`stat ${kdClass(player.kd)}`}>{player.kd.toFixed(2)}</td>
-                <td className="stat">{player.adr.toFixed(1)}</td>
-                <td className="stat">{player.kast.toFixed(1)}%</td>
-                <td className="stat highlight">{player.rating.toFixed(2)}</td>
-                <td><span className={`overall-badge ${overallClass(player.overall)}`}>{player.overall.toFixed(1)}</span></td>
+                <td className="player-name">
+                  {player.player}
+                  {player.igl_score >= 70 && <span className="igl-tag">IGL</span>}
+                </td>
+                <td><span className={`role-badge ${roleClass(player.role)}`}>{player.role || 'Unassigned'}</span></td>
+                <td><span className={`overall-badge ${overallClass(Number(player?.Rating ?? player?.rating ?? player?.overall_rating ?? 0))}`}>{getDisplayRating(player)}</span></td>
+                <td className="stat">{formatPrice(player.price)}</td>
               </tr>
             ))}
           </tbody>

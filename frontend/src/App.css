@@ -224,6 +224,21 @@ tbody tr:last-child td { border-bottom: none; }
 .role-badge.lurker   { background: rgba(234,179,8,0.15);  color: #facc15; }
 .role-badge.default  { background: rgba(255,255,255,0.06);color: var(--text-secondary); }
 
+.igl-tag {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  margin-left: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: inline-block;
+  vertical-align: middle;
+}
+
 .stat { font-variant-numeric: tabular-nums; font-weight: 500; }
 .stat.highlight { color: var(--accent); font-weight: 700; }
 
@@ -242,6 +257,110 @@ tbody tr:last-child td { border-bottom: none; }
 .overall-high { background: rgba(34,197,94,0.15);  color: #4ade80; }
 .overall-mid  { background: rgba(234,179,8,0.15);  color: #facc15; }
 .overall-low  { background: rgba(239,68,68,0.15);  color: #f87171; }
+
+.clickable-row { cursor: pointer; }
+.clickable-row:hover { background: rgba(255,255,255,0.08); }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,14,23,0.8);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(560px, 100%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 28px 80px rgba(0,0,0,0.35);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h2 {
+  font-size: 1.4rem;
+}
+
+.modal-subtitle {
+  color: var(--text-secondary);
+  margin-top: 0.35rem;
+  font-size: 0.95rem;
+}
+
+.modal-close {
+  border: none;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  line-height: 1;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.modal-content {
+  padding: 1.5rem;
+}
+
+.modal-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.modal-details-grid div {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.modal-details-grid span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  margin-bottom: 0.35rem;
+}
+
+.modal-details-grid strong {
+  display: block;
+  font-size: 1.15rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary {
+  min-width: 120px;
+}
+
+.modal-status {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--accent);
+  font-weight: 600;
+}
 
 /* ── Empty / Error / Loading ───────────────────── */
 .empty-state {
@@ -285,6 +404,46 @@ tbody tr:last-child td { border-bottom: none; }
 @media (max-width: 640px) {
   .app { padding: 1.2rem 1rem 3rem; }
   .logo-text { font-size: 1.3rem; }
+}
+
+.create-team-form {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+}
+
+.create-team-form h4 {
+  margin-bottom: 0.85rem;
+  color: #fff;
+}
+
+.create-team-form .form-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.create-team-form input {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.create-team-form .btn-primary {
+  width: max-content;
+}
+
+.form-error {
+  margin-top: 0.85rem;
+  color: var(--red);
+  font-size: 0.86rem;
 }
 
 /* ── Navbar ────────────────────────────────────── */
@@ -480,6 +639,31 @@ tbody tr:last-child td { border-bottom: none; }
   transform: none;
 }
 
+.btn-secondary {
+  padding: 0.8rem 1rem;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: rgba(255,255,255,0.12);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .loader-container {
   display: flex;
   flex-direction: column;
@@ -500,4 +684,332 @@ tbody tr:last-child td { border-bottom: none; }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ── Dashboard Layout ──────────────────────────── */
+.dashboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 1.5rem;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.section-title::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 3px;
+  display: inline-block;
+}
+
+/* ── Teams Layout ──────────────────────────────── */
+.teams-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+  gap: 1.5rem;
+}
+
+.manage-market-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1.5rem;
+}
+
+.home-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.home-card h2,
+.home-card h3 {
+  margin-bottom: 0.85rem;
+}
+
+.home-card p {
+  color: var(--text-secondary);
+  margin-bottom: 1.25rem;
+}
+
+.home-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.home-stats div {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+}
+
+.home-stats span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+
+.home-stats strong {
+  font-size: 1.1rem;
+  color: #fff;
+}
+
+.team-selection-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.team-card-small {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: rgba(255,255,255,0.03);
+}
+
+.team-card-small.selected {
+  border-color: var(--accent);
+  background: rgba(249,115,22,0.08);
+}
+
+.team-card-small strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.team-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.selected-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(34,197,94,0.15);
+  color: #a7f3d0;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 160px;
+}
+
+.filter-group label {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.filter-group select {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.tab-panel {
+  margin-top: 1.5rem;
+}
+
+/* ── Team Card ─────────────────────────────────── */
+.team-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.2);
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.team-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+  border-color: rgba(255,255,255,0.1);
+}
+
+.team-header {
+  background: linear-gradient(135deg, rgba(255,255,255,0.03), transparent);
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.team-info h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.25rem;
+}
+
+.team-rank {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.team-value {
+  text-align: right;
+}
+
+.team-value .label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+
+.team-value .value {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--green);
+}
+
+/* ── Team Roster Table ─────────────────────────── */
+.team-roster {
+  flex: 1;
+  background: rgba(0,0,0,0.15);
+  text-align: center;
+  padding: 1.5rem; 
+}
+
+.roster-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.roster-table th {
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.roster-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  font-size: 0.85rem;
+}
+
+.roster-table tr:last-child td {
+  border-bottom: none;
+}
+
+.roster-table tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+
+/* Column alignment for roster tables */
+.roster-table th:first-child,
+.roster-table td:first-child,
+.roster-table th:nth-child(2),
+.roster-table td:nth-child(2) {
+  text-align: left;
+}
+
+/* Center numeric/stat columns (Overall, IGL) when present */
+.roster-table th:nth-child(3),
+.roster-table td:nth-child(3),
+.roster-table th:nth-child(4),
+.roster-table td:nth-child(4) {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Action column (last) should be right-aligned */
+.roster-table th:last-child,
+.roster-table td:last-child {
+  text-align: right;
+  width: 160px;
+}
+
+/* Make action buttons consistent size and aligned */
+.roster-table td .btn-primary,
+.roster-table td .btn-secondary {
+  min-width: 120px;
+  padding: 0.6rem 1rem;
+}
+
+
+.empty-roster {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.price-stat {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--green);
+}
+
+@media (max-width: 1280px) {
+  .teams-list {
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .teams-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
 }
