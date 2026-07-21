@@ -8,12 +8,22 @@ router = APIRouter()
 
 
 def some_acceptance_check(negotiation: models.Negotiation) -> bool:
-    if negotiation.success_chance >= 70:
+    if negotiation.is_untouchable:
+        return False
+
+    if negotiation.success_chance >= 75:
         return True
-    if negotiation.rounds >= 1 and negotiation.offer_amount >= (negotiation.player.price * 1.3):
+
+    offer_ratio = negotiation.offer_amount / max(negotiation.player.price, 1) if negotiation.player else 1.0
+    source_rank = negotiation.source_team.ranking if negotiation.source_team and negotiation.source_team.ranking else 50
+
+    if source_rank <= 5 and offer_ratio >= 2.0 and negotiation.success_chance >= 40:
         return True
-    if negotiation.success_chance >= 55 and negotiation.rounds >= 2:
+    if source_rank <= 10 and offer_ratio >= 1.5 and negotiation.success_chance >= 45:
         return True
+    if source_rank > 10 and offer_ratio >= 1.2 and negotiation.success_chance >= 50:
+        return True
+
     return False
 
 
@@ -51,11 +61,14 @@ def start_negotiation(negotiation: schemas.NegotiationCreate, db: Session = Depe
         new_negotiation.status = "accepted"
         new_negotiation.player.team_id = new_negotiation.target_team_id
         manager.budget -= negotiation.offer_amount
+    elif new_negotiation.is_untouchable or new_negotiation.success_chance < 10.0:
+        new_negotiation.status = "rejected"
 
     db.add(new_negotiation)
     db.commit()
     db.refresh(new_negotiation)
     return new_negotiation
+
 
 @router.post("/negotiations/{negotiation_id}/offer", response_model=schemas.NegotiationResponse)
 def make_offer(negotiation_id: int, offer: schemas.NegotiationOffer, db: Session = Depends(get_db)):
@@ -63,19 +76,21 @@ def make_offer(negotiation_id: int, offer: schemas.NegotiationOffer, db: Session
     if not negotiation or negotiation.status != "pending":
         raise HTTPException(status_code=404, detail="Negotiation not found or closed")
 
+    if negotiation.manager.budget < offer.offer_amount:
+        raise HTTPException(status_code=400, detail="Offer exceeds current budget")
+
     negotiation.offer_amount = offer.offer_amount
     negotiation.rounds += 1
     negotiation.calculate_success()
 
-    # decide acceptance in backend logic
     if some_acceptance_check(negotiation):
         negotiation.status = "accepted"
         negotiation.player.team_id = negotiation.target_team_id
         manager = negotiation.manager
         manager.budget -= offer.offer_amount
-    elif negotiation.rounds >= 3:
+    elif negotiation.is_untouchable or negotiation.rounds >= 3 or negotiation.success_chance < 10.0:
         negotiation.status = "rejected"
 
     db.commit()
     db.refresh(negotiation)
-    return negotiation
+    return negotiation

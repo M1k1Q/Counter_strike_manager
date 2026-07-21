@@ -7,90 +7,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from app.database import SessionLocal, engine, Base
 from app import models
+from app.classifier import load_and_classify
+from app.rating import calculate_rating
 
 
-def load_and_classify(csv_path):
-    """Load the scraped CSV and add simple classification columns if absent."""
-    with open(csv_path, "r", encoding="utf-8") as handle:
-        lines = handle.readlines()
 
-    cleaned_lines = []
-    for line in lines:
-        if line.strip():
-            cleaned_lines.append(line.rstrip("\n"))
-
-    if not cleaned_lines:
-        return pd.DataFrame()
-
-    header = cleaned_lines[0].split(",")
-    rows = []
-    for line in cleaned_lines[1:]:
-        parts = line.split(",")
-        if len(parts) != len(header):
-            if len(parts) > len(header):
-                parts = parts[:len(header)]
-            else:
-                parts = parts + [""] * (len(header) - len(parts))
-        rows.append(parts)
-
-    df = pd.DataFrame(rows, columns=header)
-    # Convert the string "None" to actual NaN for team column
-    df["Team"] = df["Team"].apply(lambda x: None if x == "None" or x == "" else x)
-    if "role" not in df.columns:
-        df["role"] = None
-    if "confidence" not in df.columns:
-        df["confidence"] = 0.0
-    if "igl_score" not in df.columns:
-        df["igl_score"] = 0.0
-    if "is_igl" not in df.columns:
-        df["is_igl"] = False
-    if "Overall Rating" not in df.columns:
-        df["Overall Rating"] = None
-    return df
-
-
-def calculate_rating(row, team_rank):
-    """Compute a simple in-game rating from available metrics and team rank."""
-    def _safe(value):
-        if pd.isna(value):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _normalize_hltv(value):
-        value = _safe(value)
-        if value is None:
-            return None
-        return max(0.0, min(100.0, value * 50.0))
-
-    metrics = []
-    for col in ["CT Rating", "T Rating", "Overall Rating"]:
-        normalized = _normalize_hltv(row.get(col))
-        if normalized is not None:
-            metrics.append(normalized)
-
-    for col in [
-        "Impact",
-        "Firepower",
-        "Opening",
-        "Entrying",
-        "Clutching",
-        "Sniping",
-        "Trading",
-        "Utility",
-    ]:
-        val = _safe(row.get(col))
-        if val is not None:
-            metrics.append(max(0.0, min(100.0, val)))
-
-    if not metrics:
-        return 0.0
-
-    base_score = sum(metrics) / len(metrics)
-    penalty = (team_rank or 0) * 0.25
-    return round(min(100.0, max(0.0, base_score - penalty)), 2)
 
 def _f(row, col):
     """Return float value or None if missing/NaN or non-numeric."""
@@ -101,6 +22,16 @@ def _f(row, col):
         return float(v)
     except ValueError:
         return None
+
+
+def _get_overall_rating(row):
+    """Extract HLTV overall rating checking fallback column names in CSV."""
+    for col in ["Overall Rating", "Rating 3.0", "Rating"]:
+        val = _f(row, col)
+        if val is not None:
+            return val
+    return None
+
 
 
 def seed_database():
@@ -164,7 +95,7 @@ def seed_database():
                 # HLTV ratings
                 ct_rating      = _f(row, "CT Rating"),
                 t_rating       = _f(row, "T Rating"),
-                overall_rating = _f(row, "Overall Rating"),
+                overall_rating = _get_overall_rating(row),
                 # Skill percentiles
                 clutching      = _f(row, "Clutching"),
                 entrying       = _f(row, "Entrying"),

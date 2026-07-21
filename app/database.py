@@ -9,7 +9,7 @@ except ImportError:
     pass
 
 # Default to SQLite for easy local development without a MySQL server
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cs_manager.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///app/cs_manager.db")
 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):

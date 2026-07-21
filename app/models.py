@@ -108,16 +108,88 @@ class Negotiation(Base):
     target_team = relationship("Team", foreign_keys=[target_team_id])
     manager = relationship("Manager")
 
-    def calculate_success(self):
+    @property
+    def is_untouchable(self) -> bool:
+        """Returns True if the player is a franchise star on a top team and offer is below top-tier threshold."""
+        source_rank = self.source_team.ranking if self.source_team and self.source_team.ranking else 50
+        if source_rank > 5 or not self.player:
+            return False
+        
+        star_rating = self.player.Rating or (self.player.overall_rating * 70 if self.player.overall_rating else 75)
+        if star_rating < 82:
+            return False
+            
+        offer_ratio = self.offer_amount / max(self.player.price, 1)
+        required_multiplier = 2.5 if source_rank <= 3 else 2.0
+        return offer_ratio < required_multiplier
+
+    def calculate_success(self) -> float:
         rounds = self.rounds if self.rounds is not None else 0
-        base = (self.player.Rating or self.player.overall_rating or 1.0) * 10
-        team_penalty = max(0, (self.source_team.ranking or 50) - 50) * 0.3
-        round_penalty = rounds * 5
-        chance = max(5, min(95, base - team_penalty - round_penalty))
+        source_rank = self.source_team.ranking if self.source_team and self.source_team.ranking else 50
+        target_rank = self.target_team.ranking if self.target_team and self.target_team.ranking else 99
+        
+        base_price = max(self.player.price, 1) if self.player else 50000
+        offer_ratio = self.offer_amount / base_price
+        
+        # 1. Minimum multiplier based on source team rank
+        if source_rank <= 3:
+            required_multiplier = 2.5
+        elif source_rank <= 5:
+            required_multiplier = 2.0
+        elif source_rank <= 10:
+            required_multiplier = 1.5
+        else:
+            required_multiplier = 1.1
+
+        # 2. Check Untouchable status
+        if self.is_untouchable:
+            self.rounds = rounds
+            self.success_chance = 0.0
+            return 0.0
+
+        # 3. Prestige gap penalty (transferring from high rank team to lower rank team)
+        prestige_gap = max(0, target_rank - source_rank)
+        prestige_penalty = min(35.0, prestige_gap * 0.4)
+
+        # 4. Calculate chance based on offer ratio vs required multiplier
+        ratio_performance = offer_ratio / required_multiplier
+        if ratio_performance < 0.7:
+            base_chance = ratio_performance * 10.0
+        elif ratio_performance < 1.0:
+            base_chance = 10.0 + (ratio_performance - 0.7) / 0.3 * 40.0
+        else:
+            base_chance = 50.0 + min(45.0, (ratio_performance - 1.0) * 35.0)
+
+        round_penalty = rounds * 8.0
+        chance = max(0.0, min(95.0, base_chance - prestige_penalty - round_penalty))
+        
         self.rounds = rounds
-        self.success_chance = chance
-        return chance
+        self.success_chance = round(chance, 1)
+        return self.success_chance
+
+    @property
+    def status_explanation(self) -> str:
+        source_name = self.source_team.name if self.source_team else "The selling team"
+        player_name = self.player.player if self.player else "The player"
+        source_rank = self.source_team.ranking if self.source_team and self.source_team.ranking else 50
+        
+        if self.status == "accepted":
+            return f"{player_name} has accepted your offer of ${self.offer_amount:,} and joined your team!"
+            
+        if self.is_untouchable:
+            req_mult = 2.5 if source_rank <= 3 else 2.0
+            min_val = int((self.player.price or 50000) * req_mult)
+            return f"{source_name} considers {player_name} untouchable and will not entertain offers below ${min_val:,} ({req_mult}x market value)."
+            
+        if self.status == "rejected":
+            return f"{source_name} rejected the offer for {player_name}. The offer did not meet their valuation or prestige expectations."
+            
+        return f"{source_name} is evaluating the offer of ${self.offer_amount:,}. Estimated acceptance chance: {self.success_chance}%."
+
+    def get_status_explanation(self) -> str:
+        return self.status_explanation
 
     def is_affordable(self):
         return self.manager.budget >= self.offer_amount
+
     

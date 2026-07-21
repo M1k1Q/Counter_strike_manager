@@ -1,0 +1,237 @@
+import math
+import os
+import sys
+import pandas as pd
+import numpy as np
+
+# Allow running directly or as module
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+
+# ---------------------------------------------------------------------------
+# 1. Role-stat weight tables
+# ---------------------------------------------------------------------------
+ROLE_WEIGHTS: dict[str, dict[str, float]] = {
+    "awper": {
+        "Sniping":   0.35,
+        "Clutching": 0.20,
+        "Opening":   0.15,
+        "Firepower": 0.15,
+        "Impact":    0.15,
+    },
+    "entry": {
+        "Entrying":  0.35,
+        "Opening":   0.25,
+        "Firepower": 0.20,
+        "Impact":    0.20,
+    },
+    "lurker": {
+        "Clutching": 0.30,
+        "Trading":   0.20,
+        "Firepower": 0.30,
+        "Impact":    0.10,
+        "Opening":   0.10,
+    },
+    "support": {
+        "Utility":   0.35,
+        "Trading":   0.20,
+        "Impact":    0.20,
+        "Clutching": 0.15,
+        "Entrying":  0.10,
+    },
+    # Dynamic IGL Calling Style weight mappings
+    "support igl": {
+        "Utility":   0.35,
+        "Trading":   0.20,
+        "Impact":    0.15,
+        "Clutching": 0.15,
+        "Opening":   0.15,
+    },
+    "entry igl": {
+        "Utility":   0.20,
+        "Entrying":  0.30,
+        "Opening":   0.20,
+        "Impact":    0.15,
+        "Firepower": 0.15,
+    },
+    "lurker igl": {
+        "Utility":   0.25,
+        "Clutching": 0.25,
+        "Trading":   0.20,
+        "Firepower": 0.15,
+        "Impact":    0.15,
+    },
+    "awper igl": {
+        "Sniping":   0.30,
+        "Utility":   0.25,
+        "Clutching": 0.15,
+        "Firepower": 0.15,
+        "Impact":    0.15,
+    },
+}
+
+FALLBACK_WEIGHTS: dict[str, float] = {
+    "Firepower": 0.25, "Impact": 0.25, "Opening": 0.20,
+    "Clutching": 0.15, "Trading": 0.15,
+}
+
+# ---------------------------------------------------------------------------
+# 2. Blend coefficients
+# ---------------------------------------------------------------------------
+W_ROLE    = 0.45
+W_HLTV    = 0.40
+W_RANKING = 0.15
+
+HLTV_MIN = 0.76
+HLTV_MAX = 1.39
+
+# ---------------------------------------------------------------------------
+# 3. Helpers
+# ---------------------------------------------------------------------------
+def _normalise_impact(val: float) -> float:
+    """Map raw HLTV Impact rating (0.50 - 1.70) to 0 - 100."""
+    if pd.isna(val):
+        return 50.0
+    return max(0.0, min(100.0, (val - 0.50) / 1.20 * 100.0))
+
+
+def _normalise_hltv(row: pd.Series | dict) -> float:
+    """Extract and normalise overall HLTV rating with fallback columns."""
+    val = row.get("Overall Rating")
+    if pd.isna(val):
+        val = row.get("Rating 3.0")
+    if pd.isna(val):
+        val = row.get("Rating")
+        
+    val = pd.to_numeric(val, errors="coerce")
+    if pd.isna(val):
+        return 50.0
+    return max(0.0, min(100.0, (val - HLTV_MIN) / (HLTV_MAX - HLTV_MIN) * 100.0))
+
+
+def _ranking_adjustment(rank: int | None, max_rank: int = 17) -> float:
+    if rank is None or max_rank <= 1:
+        return 0.0
+    normalized = 1.0 - (2.0 * (rank - 1) / (max_rank - 1))
+    return normalized * 50.0
+
+
+def _post_scale(raw: float) -> int:
+    raw = max(0.0, min(100.0, raw))
+    scaled = 65.0 + (math.pow(raw / 100.0, 0.85) * 31.0)
+    return int(round(max(65.0, min(96.0, scaled))))
+
+
+def _role_score(row: pd.Series | dict, role: str) -> float:
+    weights = ROLE_WEIGHTS.get(role, None)
+    if weights is None:
+        for base in ("awper", "entry", "lurker", "support"):
+            if base in role:
+                weights = ROLE_WEIGHTS.get(base)
+                break
+    if weights is None:
+        weights = FALLBACK_WEIGHTS
+
+    score = 0.0
+    for stat, w in weights.items():
+        val = pd.to_numeric(row.get(stat), errors="coerce")
+        if pd.isna(val):
+            val = 50.0
+        elif stat == "Impact":
+            val = _normalise_impact(val)
+            
+        score += w * val
+    return score
+
+
+# ---------------------------------------------------------------------------
+# 4. Main calculation
+# ---------------------------------------------------------------------------
+def calculate_rating(row: pd.Series | dict, team_rank: int | None = None, max_rank: int = 16) -> int:
+    role = str(row.get("role", "")) if pd.notna(row.get("role")) else ""
+    is_igl = bool(row.get("is_igl", False))
+    
+    rs   = _role_score(row, role)
+    hltv = _normalise_hltv(row)
+    
+    # Base performance score
+    perf_raw = (W_ROLE / (W_ROLE + W_HLTV)) * rs + (W_HLTV / (W_ROLE + W_HLTV)) * hltv
+    
+    # Ranking modifier
+    rank_mod = _ranking_adjustment(team_rank, max_rank=max_rank)
+    
+    raw = (1.0 - W_RANKING) * perf_raw + (W_RANKING * (50.0 + rank_mod))
+    
+    # IGL Low-Fragging Penalty
+    if is_igl and hltv < 45.0:
+        raw -= 8.0
+
+    return _post_scale(raw)
+
+
+# ---------------------------------------------------------------------------
+# 5. Execution
+# ---------------------------------------------------------------------------
+def main():
+    from app.classifier import load_and_classify
+
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hltv_team_player_stats_2026.csv")
+    print(f"Loading: {csv_path}\n")
+    df = load_and_classify(csv_path)
+
+    unique_teams = list(df["Team"].dropna().unique())
+    team_rank: dict[str, int] = {t: i + 1 for i, t in enumerate(unique_teams)}
+    max_rank = max(team_rank.values()) if team_rank else 20
+
+    ratings = []
+    for _, row in df.iterrows():
+        t    = row.get("Team")
+        rank = team_rank.get(t) if pd.notna(t) else None
+        ratings.append(calculate_rating(row, rank, max_rank=max_rank))
+
+    df["Rating"] = ratings
+
+    display_cols = ["Team", "Player", "role", "Rating", "igl_score",
+                    "Overall Rating", "Firepower", "Impact", "Opening",
+                    "Entrying", "Clutching", "Trading", "Utility", "Sniping"]
+    display_cols = [c for c in display_cols if c in df.columns]
+
+    pd.set_option("display.max_rows", 200)
+    pd.set_option("display.width", 160)
+    pd.set_option("display.max_colwidth", 24)
+
+    print("=" * 140)
+    print("  PLAYER IN-GAME RATINGS (TEAM-WISE BREAKDOWN)")
+    print("=" * 140)
+
+    rostered_df = df[df["Team"].notna()].copy()
+    no_team_df = df[df["Team"].isna()].copy()
+
+    rostered_df["Team_Rank"] = rostered_df["Team"].map(team_rank)
+    sorted_rostered = rostered_df.sort_values(by=["Team_Rank", "Rating"], ascending=[True, False])
+    
+    for team, group in sorted_rostered.groupby("Team", sort=False):
+        rank = team_rank[team]
+        print(f"\n[ Rank #{rank} ]  {team.upper()}")
+        print("-" * 140)
+        print(group[display_cols].to_string(index=False))
+        print("-" * 140)
+
+    if not no_team_df.empty:
+        print("\n" + "=" * 140)
+        print("  NO-TEAM PLAYERS / FREE AGENTS")
+        print("=" * 140)
+        sorted_no_team = no_team_df.sort_values(by="Rating", ascending=False)
+        print(sorted_no_team[display_cols].to_string(index=False))
+        print("=" * 140)
+
+    known_igls = ["apEX", "karrigan", "Aleksib", "FalleN", "HooXi", "bLitz", "Twistzz", "xertioN"]
+    print("\n  IGL STYLE & RATINGS (sanity check)")
+    igl_check = df[df["Player"].isin(known_igls)][["Player", "Team", "role", "Rating", "igl_score"]]
+    print(igl_check.to_string(index=False))
+
+    print("\n[Done]\n")
+
+
+if __name__ == "__main__":
+    main()

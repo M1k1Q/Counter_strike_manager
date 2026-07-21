@@ -109,7 +109,7 @@ function App() {
 
   const handleSelectTeam = async (teamId) => {
     try {
-      const res = await fetch(`/select-team/${teamId}`, { method: 'POST' })
+      const res = await fetch(`/game/select-team/${teamId}`, { method: 'POST' })
       if (!res.ok) throw new Error('Unable to select team')
       await refreshAllData()
     } catch (err) {
@@ -126,7 +126,7 @@ function App() {
     setTeamError(null)
 
     try {
-      const res = await fetch('/create-team', {
+      const res = await fetch('/game/create-team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newTeamName.trim() })
@@ -169,15 +169,17 @@ function App() {
     return `${players.find((p) => p.id === playerId)?.player || 'Player'} signed.`
   }
 
-  const handleNegotiatePlayer = async (player, existingNegotiation = null) => {
+  const handleNegotiatePlayer = async (player, existingNegotiation = null, customOfferAmount = null) => {
     if (!selectedTeam?.id) {
       throw new Error('Select a team before negotiating players.')
     }
 
     const baseOffer = Math.max(player.price || 50000, 50000)
-    const offerAmount = existingNegotiation
-      ? Math.max(existingNegotiation.offer_amount + Math.round(baseOffer * 0.1), baseOffer)
-      : baseOffer
+    const offerAmount = customOfferAmount
+      ?? (existingNegotiation
+        ? Math.max(existingNegotiation.offer_amount + Math.round(baseOffer * 0.1), baseOffer)
+        : baseOffer)
+
     const url = existingNegotiation
       ? `/negotiations/${existingNegotiation.id}/offer`
       : '/negotiations'
@@ -221,7 +223,7 @@ function App() {
     return `${players.find((p) => p.id === playerId)?.player || 'Player'} released.`
   }
 
-  const handleModalAction = async (player) => {
+  const handleModalAction = async (player, customOfferAmount = null) => {
     setModalStatus('Working...')
     setModalSubmitting(true)
     setTeamError(null)
@@ -241,13 +243,15 @@ function App() {
         return
       }
 
-      const data = await handleNegotiatePlayer(player, activeNegotiation)
-      if (data.status === 'accepted') {
+      const data = await handleNegotiatePlayer(player, activeNegotiation, customOfferAmount)
+      if (data.status_explanation) {
+        setModalStatus(data.status_explanation)
+      } else if (data.status === 'accepted') {
         setModalStatus(`${player.player} has joined ${selectedTeam.name}!`)
       } else if (data.status === 'rejected') {
         setModalStatus(`${player.player} rejected the offer.`)
       } else if (data.status === 'pending') {
-        setModalStatus(`Negotiation pending: ${Math.round(data.success_chance)}% chance to succeed. Offer amount: $${data.offer_amount.toLocaleString()}`)
+        setModalStatus(`Negotiation pending: ${Math.round(data.success_chance)}% chance to succeed. Offer: $${data.offer_amount.toLocaleString()}`)
       } else {
         setModalStatus(`Negotiation status: ${data.status}`)
       }
@@ -290,6 +294,19 @@ function App() {
   const marketPlayers = selectedTeam ? players.filter(p => p.team_id !== null && p.team_id !== selectedTeam.id) : []
   const selectedTeamPlayers = selectedTeam?.players || []
   const getTeamName = (teamId) => teams.find((team) => team.id === teamId)?.name || 'Unknown'
+
+  // Group market players by team
+  const marketPlayersByTeam = marketPlayers.reduce((acc, player) => {
+    const teamName = getTeamName(player.team_id)
+    const teamRanking = teams.find(t => t.id === player.team_id)?.ranking ?? 99
+    if (!acc[teamName]) acc[teamName] = { players: [], ranking: teamRanking, team_id: player.team_id }
+    acc[teamName].players.push(player)
+    return acc
+  }, {})
+  const marketTeamsSorted = Object.entries(marketPlayersByTeam).sort((a, b) => a[1].ranking - b[1].ranking)
+
+  const formatPrice = (price) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(price || 0)
   const handlePlayerRowClick = (player) => {
     setActivePlayer(player)
     setActiveNegotiation(null)
@@ -532,53 +549,90 @@ function App() {
                         </div>
                       </div>
                       <div className="manage-market-list">
-                        <div className="team-card">
-                          <div className="team-header">
-                            <div className="team-info">
-                              <h3>Players on other teams</h3>
+                          {marketPlayers.length === 0 ? (
+                            <div className="team-card">
+                              <div className="team-header">
+                                <div className="team-info"><h3>Players on other teams</h3></div>
+                              </div>
+                              <div className="team-roster">
+                                <p className="empty-roster">No players available from other teams.</p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="team-roster">
-                            {marketPlayers.length === 0 ? (
-                              <p className="empty-roster">No players available from other teams.</p>
-                            ) : (
-                              <table className="roster-table">
-                                <thead>
-                                  <tr>
-                                    <th>Player</th>
-                                    <th>Current Team</th>
-                                    <th>Role</th>
-                                    <th>Overall</th>
-                                    <th>IGL</th>
-                                    <th>Action</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {marketPlayers.map((player) => (
-                                    <tr key={player.id} onClick={() => setActivePlayer(player)} className="clickable-row">
-                                      <td>{player.player}</td>
-                                      <td>{getTeamName(player.team_id)}</td>
-                                      <td>{player.role || 'Unassigned'}</td>
-                                      <td>{getDisplayRating(player)}</td>
-                                      <td>{player.igl_score != null ? `${player.igl_score.toFixed(0)}%` : '—'}</td>
-                                      <td>
-                                        <button className="btn-secondary" type="button" onClick={(e) => {
-                                          e.stopPropagation()
-                                          setActivePlayer(player)
-                                          setActiveNegotiation(null)
-                                          setModalStatus(null)
-                                        }}>
-                                          Negotiate
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </div>
+                          ) : (
+                            <>
+                              <h3 className="market-section-title">
+                                Players on other teams
+                                <span className="market-count">{marketPlayers.length} players</span>
+                              </h3>
+                              {marketTeamsSorted.map(([teamName, { players: teamPlayers, ranking }]) => (
+                                <div className="team-card market-team-card" key={teamName}>
+                                  <div className="team-header">
+                                    <div className="team-info">
+                                      <h3>{teamName}</h3>
+                                      <span className="team-rank">Rank #{ranking}</span>
+                                    </div>
+                                    <div className="team-value">
+                                      <span className="label">Players</span>
+                                      <span className="value">{teamPlayers.length}</span>
+                                    </div>
+                                  </div>
+                                  <div className="team-roster">
+                                    <table className="roster-table">
+                                      <thead>
+                                        <tr>
+                                          <th>Player</th>
+                                          <th>Role</th>
+                                          <th>Overall</th>
+                                          <th>IGL</th>
+                                          <th>Market Value</th>
+                                          <th>Action</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {teamPlayers
+                                          .slice()
+                                          .sort((a, b) => (b.Rating ?? 0) - (a.Rating ?? 0))
+                                          .map((player) => {
+                                            const sourceRank = ranking
+                                            const isTopTeamStar = sourceRank <= 5 && (player.Rating ?? 0) >= 82
+                                            return (
+                                              <tr key={player.id} onClick={() => setActivePlayer(player)} className="clickable-row">
+                                                <td>
+                                                  <span className="player-name-cell">{player.player}</span>
+                                                  {isTopTeamStar && (
+                                                    <span className="untouchable-tag" title="Franchise star – very hard to sign">★</span>
+                                                  )}
+                                                </td>
+                                                <td>{player.role || 'Unassigned'}</td>
+                                                <td>{getDisplayRating(player)}</td>
+                                                <td>{player.igl_score != null ? `${player.igl_score.toFixed(0)}%` : '—'}</td>
+                                                <td className="market-value-cell">
+                                                  <span className={`market-value ${isTopTeamStar ? 'market-value--star' : ''}`}>
+                                                    {formatPrice(player.price)}
+                                                  </span>
+                                                </td>
+                                                <td>
+                                                  <button className="btn-secondary btn-sm" type="button" onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    setActivePlayer(player)
+                                                    setActiveNegotiation(null)
+                                                    setModalStatus(null)
+                                                  }}>
+                                                    Negotiate
+                                                  </button>
+                                                </td>
+                                              </tr>
+                                            )
+                                          })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              ))}
+                            </>
+                          )}
                         </div>
-                      </div>
+
                     </div>
                   )}
 

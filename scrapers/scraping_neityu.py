@@ -42,17 +42,16 @@ def init_stealth_driver():
     )
     return driver
 
-def handle_cloudflare_or_wait(driver, timeout=20):
+def handle_cloudflare_or_wait(driver, timeout=25):
     """
     Waits for the target HLTV page elements to render while allowing 
-    extra time if Cloudflare triggers a interstitial challenge.
+    extra time if Cloudflare triggers an interstitial challenge.
     """
     print("-> Waiting for page to load completely...")
     start_time = time.time()
     
     while time.time() - start_time < timeout:
         title = driver.title.lower()
-        # Detect standard Cloudflare challenge page titles
         if "just a moment" in title or "attention required" in title:
             print("   Cloudflare challenge detected. Waiting for auto-solve / user action...")
             time.sleep(2)
@@ -66,13 +65,12 @@ def handle_cloudflare_or_wait(driver, timeout=20):
             print("-> Core metrics rendered successfully.")
             return True
         except Exception:
-            # Short fallback sleep before re-checking
             time.sleep(1)
 
     print("[!] Timed out waiting for target elements or Cloudflare challenge.")
     return False
 
-def get_soup_via_selenium(driver, url):
+def get_soup_via_selenium(driver, url, is_verification_page=False):
     """Loads a page with explicit waits and returns a BeautifulSoup object."""
     try:
         driver.get(url)
@@ -93,25 +91,26 @@ def get_soup_via_selenium(driver, url):
 
 def parse_individual_profile(driver, player_url):
     """Navigates to individual player profile and parses the metric grids."""
-    soup = get_soup_via_selenium(driver, player_url)
+    soup = get_soup_via_selenium(driver, player_url, is_verification_page=False)
     profile_metrics = {}
     if not soup:
         return profile_metrics
+    
+    # 1. Extract Overall Rating 3.0 / Rating
+    rating_tag = soup.select_one('div.player-summary-stat-box-rating-data-text')
+    if rating_tag:
+        profile_metrics['Rating'] = rating_tag.get_text(strip=True)
 
-    ovr_rating = soup.find("div", class_="player-summary-stat-box-rating-data-text")
-    if ovr_rating:
-        profile_metrics["Overall Rating"] = ovr_rating.get_text(strip=True)
-
+    # 2. Extract Side Ratings (T Rating & CT Rating)
     ratings = soup.find_all("div", class_="player-summary-stat-box-side-rating-background-wrapper")
-
     if len(ratings) >= 2:
-        t_raw = ratings[0].get_text(strip=True)
+        t_raw  = ratings[0].get_text(strip=True)
         ct_raw = ratings[1].get_text(strip=True)
-        profile_metrics["T Rating"] = re.match(r"[\d.]+", t_raw).group() if re.match(r"[\d.]+", t_raw) else t_raw
+        profile_metrics["T Rating"]  = re.match(r"[\d.]+", t_raw).group()  if re.match(r"[\d.]+", t_raw)  else t_raw
         profile_metrics["CT Rating"] = re.match(r"[\d.]+", ct_raw).group() if re.match(r"[\d.]+", ct_raw) else ct_raw
-
+    
+    # 3. Extract Role / Attribute Section Scores
     sections = soup.find_all("div", class_="role-stats-section")
-
     for section in sections:
         title_div = section.find("div", class_="role-stats-section-title")
         score_div = section.find("div", class_="row-stats-section-score")
@@ -119,14 +118,14 @@ def parse_individual_profile(driver, player_url):
         if title_div and score_div:
             title_texts = [t.strip() for t in title_div.find_all(string=True, recursive=False) if t.strip()]
             title = title_texts[0] if title_texts else ""
-            score = score_div.get_text(strip=True)
-            if title:
-                profile_metrics[title] = score
+            score = score_div.contents[0].get_text(strip=True)
+            profile_metrics[title] = score
 
+    # 4. Extract Impact Metric
     impact_tag = (
-        soup.select_one('div.player-summary-stat-box-rating-data-text--impact')
-        or soup.select_one('[class*="impact"]')
-        or soup.select_one('span.strong')
+        soup.select_one('div.player-summary-stat-box-rating-data-text--impact') or
+        soup.select_one('[class*="impact"]') or
+        soup.select_one('span.strong')
     )
     if impact_tag:
         profile_metrics['Impact'] = impact_tag.get_text(strip=True)
@@ -138,14 +137,14 @@ def main():
     driver = init_stealth_driver()
     
     try:
-        # Step 1: Scrape player profile using explicit waiting
+        # Step 1: Scrape player profile using exact parser
         advanced_metrics = parse_individual_profile(driver, TARGET_PLAYER_LINK)
         
         if not advanced_metrics:
             print("[!] Could not parse metrics. Page failed to load or timed out.")
             return
 
-        # Step 2: Assemble row data
+        # Step 2: Assemble row data matching standard field layout
         new_row = {
             'Team': TARGET_TEAM_NAME,
             'Player': TARGET_PLAYER_NAME,
@@ -168,9 +167,14 @@ def main():
             if key not in headers:
                 headers.append(key)
 
-        # Step 4: Append to CSV securely
+        # Step 4: Append to CSV using exact headers
         with open(CSV_FILENAME, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=headers, extrasaction='ignore')
+            
+            # Write header if file was newly created
+            if f.tell() == 0:
+                writer.writeheader()
+                
             writer.writerow(new_row)
             
         print(f"\n[+] Success! Custom entry for {TARGET_PLAYER_NAME} added under team {TARGET_TEAM_NAME}.")
