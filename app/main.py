@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import players, teams, games, negotiations
+from app.routes import players, teams, games, negotiations, roster
 from app.database import engine, Base
 from app import models
 
@@ -20,6 +20,7 @@ app.include_router(players.router)
 app.include_router(teams.router)
 app.include_router(games.router)
 app.include_router(negotiations.router)
+app.include_router(roster.router)
 
 @app.get("/")
 def root():

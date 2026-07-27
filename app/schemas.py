@@ -114,3 +114,39 @@ class NegotiationResponse(NegotiationBase):
     class Config:
         from_attributes = True
 
+
+class RoleCountResponse(BaseModel):
+    team_id: int
+    roles_count: dict
+    team_name: str
+    class Config:
+        from_attributes = True
+
+class AutoIGLResponse(BaseModel):
+    message: str
+    player_id: int
+    igl_score: float
+
+    class Config:
+        from_attributes = True
+
+class CandidateSummaryResponse(BaseModel):
+    player_name: str
+    role: str
+    igl_score: float
+    confidence: float
+    is_best_igl: bool = False
+
+    class Config:
+        from_attributes = True
+
+class TeamNeedsResponse(BaseModel):
+    team_id: int
+    team_name: str
+    roster_status: str
+    roles_count: dict
+    missing_roles: List[str]
+    assigned_igl: Optional[str] = None
+
+    class Config:
+        from_attributes = True

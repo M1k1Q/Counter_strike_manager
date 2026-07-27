@@ -4,6 +4,7 @@ import PlayerModal from './components/PlayerModal'
 import Navbar from './components/navbar'
 import CareerStart from './components/CareerStart'
 import TeamRoster from './components/TeamRoster'
+import TeamNeeds from './components/TeamNeeds'
 import './App.css'
 
 function App() {
@@ -499,6 +500,14 @@ function App() {
                             )}
                           </div>
                         </div>
+                      )}
+                      
+                      {selectedTeam && (
+                        <TeamNeeds 
+                          team={selectedTeam} 
+                          onRowClick={setActivePlayer} 
+                          refreshTrigger={selectedTeamPlayers.length} 
+                        />
                       )}
                     </div>
                   </div>
