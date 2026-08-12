@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
@@ -32,6 +32,8 @@ class Player(Base):
     confidence     = Column(Float, default=0.0)                # 0-100 role fit %
     igl_score      = Column(Float, default=0.0)                # 0-100 IGL score
     is_igl         = Column(Boolean, default=False)            # designated team IGL?
+    is_active_roster = Column(Boolean, default=False)          # true if in starting 5
+    selected_role  = Column(String(30), nullable=True)         # manager-assigned role
 
     #overall ingame rating
     Rating = Column(Integer , nullable=True)
@@ -71,6 +73,7 @@ class Team(Base):
     id      = Column(Integer, primary_key=True, index=True)
     name    = Column(String(100), unique=True, nullable=False)
     ranking = Column(Integer, nullable=True)
+    budget  = Column(Integer, default=1_000_000)  # AI transfer budget
 
     players = relationship("Player", backref="team", foreign_keys=[Player.team_id])
 
@@ -192,4 +195,43 @@ class Negotiation(Base):
     def is_affordable(self):
         return self.manager.budget >= self.offer_amount
 
-    
+
+class AIBuyoutOffer(Base):
+    """An AI team's proactive offer to buy a player from the human manager's team."""
+    __tablename__ = "ai_buyout_offers"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    player_id      = Column(Integer, ForeignKey("players.id"), nullable=False)
+    ai_team_id     = Column(Integer, ForeignKey("teams.id"), nullable=False)
+
+    # Current offer the AI is putting on the table
+    current_offer  = Column(Integer, nullable=False)
+    # Original offer when the negotiation started (used to cap AI raises)
+    initial_offer  = Column(Integer, nullable=False)
+    # How many counter-offer rounds have happened
+    rounds         = Column(Integer, default=0)
+
+    # pending | accepted | rejected | collapsed
+    status         = Column(String(20), default="pending")
+
+    created_at     = Column(DateTime, default=datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    player   = relationship("Player")
+    ai_team  = relationship("Team", foreign_keys=[ai_team_id])
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    username        = Column(String(50), unique=True, index=True, nullable=False)
+    email           = Column(String(100), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    is_active       = Column(Boolean, default=True)
+    is_admin        = Column(Boolean, default=False)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    manager_id      = Column(Integer, ForeignKey("managers.id"), nullable=True)
+    manager         = relationship("Manager")
+

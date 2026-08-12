@@ -24,7 +24,8 @@ class PlayerBase(BaseModel):
     igl_score:      float           = 0.0
     is_igl:         bool            = False
     Rating:         int             = 0
-
+    is_active_roster: bool = False
+    selected_role: Optional[str] =None
 
 class PlayerCreate(PlayerBase):
     team_id: Optional[int] = None
@@ -34,7 +35,9 @@ class PlayerResponse(PlayerBase):
     id:      int
     team_id: Optional[int] = None
     price:   int = 0
-
+    is_active_roster: bool = False
+    selected_role: Optional[str] =None
+    
     class Config:
         from_attributes = True
 
@@ -47,6 +50,8 @@ class TeamCreate(BaseModel):
     name:    str
     ranking: Optional[int] = None
 
+class TeamRosterUpdate(BaseModel):
+    active_player_ids: List[int]
 
 class TeamResponse(TeamCreate):
     id: int
@@ -54,7 +59,6 @@ class TeamResponse(TeamCreate):
 
     class Config:
         from_attributes = True
-
 
 # ---------------------------------------------------------------------------
 # Manager
@@ -150,3 +154,49 @@ class TeamNeedsResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class PlayerRoleUpdate(BaseModel):
+    role: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Auth / User Schemas
+# ---------------------------------------------------------------------------
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    username_or_email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+    manager_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+        

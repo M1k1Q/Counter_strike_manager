@@ -110,4 +110,23 @@ def get_team_needs_candidates(team_id: int, db: Session = Depends(get_db)):
         return (1 if matches_missing else 0, rating)
         
     candidates = sorted(other_players, key=sort_key, reverse=True)
-    return candidates
+    return candidates
+
+# @router.put("/teams/{team_id}/roster", response_model=schemas.TeamResponse)
+# def set_active_roster(team_id: int, roster_update: schemas.TeamRosterUpdate, db: Session = Depends(get_db)):
+#     team = db.query(models.Team).filter(models.Team.id == team_id).first()
+#     if not team:
+#         raise HTTPException(status_code=404, detail="Team not found")
+        
+#     if len(roster_update.active_player_ids) != 5:
+#         raise HTTPException(status_code=400, detail="Active roster must contain exactly 5 players.")
+        
+#     for p in team.players:
+#         if p.id in roster_update.active_player_ids:
+#             p.is_active_roster = True
+#         else:
+#             p.is_active_roster = False
+            
+#     db.commit()
+#     db.refresh(team)
+#     return team

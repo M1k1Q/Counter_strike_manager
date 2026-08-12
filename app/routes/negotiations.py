@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
+from app.routes.ai_transfers import handle_ai_replacement
 
 
 router = APIRouter()
@@ -60,7 +61,10 @@ def start_negotiation(negotiation: schemas.NegotiationCreate, db: Session = Depe
     if some_acceptance_check(new_negotiation):
         new_negotiation.status = "accepted"
         new_negotiation.player.team_id = new_negotiation.target_team_id
+        # Credit the selling AI team's budget with the offer amount
+        source_team.budget += negotiation.offer_amount
         manager.budget -= negotiation.offer_amount
+        handle_ai_replacement(db, source_team.id, player.id)
     elif new_negotiation.is_untouchable or new_negotiation.success_chance < 10.0:
         new_negotiation.status = "rejected"
 
@@ -86,11 +90,14 @@ def make_offer(negotiation_id: int, offer: schemas.NegotiationOffer, db: Session
     if some_acceptance_check(negotiation):
         negotiation.status = "accepted"
         negotiation.player.team_id = negotiation.target_team_id
+        # Credit the selling AI team's budget with the offer amount
+        negotiation.source_team.budget += offer.offer_amount
         manager = negotiation.manager
         manager.budget -= offer.offer_amount
+        handle_ai_replacement(db, negotiation.source_team_id, negotiation.player_id)
     elif negotiation.is_untouchable or negotiation.rounds >= 3 or negotiation.success_chance < 10.0:
         negotiation.status = "rejected"
 
     db.commit()
     db.refresh(negotiation)
-    return negotiation
+    return negotiation

@@ -1,12 +1,32 @@
+# Environment & Configuration
+.env
+.env.*
+!.env.example
+
+# Python & Virtual Environments
 __pycache__/
 *.py[cod]
 *$py.class
-.env
 .venv/
 env/
 venv/
 ENV/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+app/cs_manager.db
+
+# Scrapers & Private Scripts
+scrapers/
+
+# Node & Frontend Build
 node_modules/
 dist/
 .DS_Store
-*.sql
+
+# IDE & Editor files
+.vscode/
+.idea/
+

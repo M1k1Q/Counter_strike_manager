@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
-from app import scraping_neity
+from scrapers import scraping_neityu
 
 
 class ScrapingNeityParserTests(unittest.TestCase):
@@ -20,10 +20,11 @@ class ScrapingNeityParserTests(unittest.TestCase):
             "html.parser",
         )
 
-        with patch("app.scraping_neity.get_soup_via_selenium", return_value=soup):
-            metrics = scraping_neity.parse_individual_profile(object(), "https://example.com")
+        with patch("scrapers.scraping_neityu.get_soup_via_selenium", return_value=soup):
+            metrics = scraping_neityu.parse_individual_profile(object(), "https://example.com")
 
         self.assertEqual(metrics["Entry"], "9.9")
+
 
 
 if __name__ == "__main__":

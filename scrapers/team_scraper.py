@@ -10,7 +10,7 @@ from selenium_stealth import stealth
 # Base URL configurations
 BASE_URL = "https://www.hltv.org"
 # Target the top teams list instead of the player leaderboard
-TEAMS_LIST_URL = "https://www.hltv.org/stats/teams?csVersion=CS2&startDate=2026-01-01&endDate=2026-12-31&rankingFilter=Top20"
+TEAMS_LIST_URL = "https://www.hltv.org/stats/teams?csVersion=CS2&startDate=2026-04-11&endDate=2026-08-11&rankingFilter=Top20"
 
 def init_stealth_driver():
     """Initializes a standard Selenium Chrome instance hardened against bot detection."""

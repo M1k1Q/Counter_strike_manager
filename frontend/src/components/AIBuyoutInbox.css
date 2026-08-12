@@ -1,0 +1,297 @@
+/* ============================================================
+   AIBuyoutInbox — styles
+   ============================================================ */
+
+/* --- Bell trigger button --- */
+.buyout-bell {
+  position: relative;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted, #9ca3af);
+  padding: 6px 8px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background 0.2s;
+}
+
+.buyout-bell:hover {
+  background: rgba(255,255,255,0.07);
+  color: var(--text-primary, #f1f5f9);
+}
+
+.buyout-bell--active {
+  color: #f59e0b;
+  animation: bell-pulse 2s ease-in-out infinite;
+}
+
+@keyframes bell-pulse {
+  0%, 100% { transform: rotate(0deg); }
+  10%        { transform: rotate(-15deg); }
+  20%        { transform: rotate(15deg); }
+  30%        { transform: rotate(-8deg); }
+  40%        { transform: rotate(8deg); }
+  50%        { transform: rotate(0deg); }
+}
+
+.buyout-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 99px;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* --- Overlay --- */
+.buyout-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 900;
+  backdrop-filter: blur(2px);
+}
+
+/* --- Slide-in panel --- */
+.buyout-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 95vw;
+  background: var(--surface, #1e2435);
+  border-left: 1px solid rgba(255,255,255,0.08);
+  box-shadow: -8px 0 40px rgba(0,0,0,0.45);
+  z-index: 901;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slide-in-right 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.buyout-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.buyout-panel__header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.buyout-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #9ca3af);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.buyout-close:hover { background: rgba(255,255,255,0.08); }
+
+/* --- Action message --- */
+.buyout-action-msg {
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #c7d2fe;
+  line-height: 1.5;
+}
+
+/* --- Empty state --- */
+.buyout-empty {
+  padding: 32px 20px;
+  color: var(--text-muted, #9ca3af);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* --- Offer list --- */
+.buyout-list {
+  list-style: none;
+  margin: 0;
+  padding: 12px 12px 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.buyout-item {
+  background: var(--surface-2, #252b3b);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.buyout-item:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.buyout-item--selected {
+  border-color: rgba(99, 102, 241, 0.6);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.buyout-item--rejected,
+.buyout-item--collapsed,
+.buyout-item--accepted {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.buyout-item__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.buyout-item__team {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted, #9ca3af);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.buyout-item__player {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary, #f1f5f9);
+  margin-bottom: 2px;
+}
+
+.buyout-item__offer {
+  font-size: 0.92rem;
+  color: #34d399;
+  font-weight: 600;
+}
+
+/* --- Status chip --- */
+.buyout-status {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.buyout-status--pending   { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.buyout-status--accepted  { background: rgba(52,211,153,0.15); color: #34d399; }
+.buyout-status--rejected  { background: rgba(239,68,68,0.15);  color: #ef4444; }
+.buyout-status--collapsed { background: rgba(107,114,128,0.15);color: #9ca3af; }
+
+/* --- Action buttons row --- */
+.buyout-actions {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.buyout-btn {
+  flex: 1;
+  min-width: 72px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.buyout-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.buyout-btn:not(:disabled):active { transform: scale(0.97); }
+
+.buyout-btn--sell {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+}
+.buyout-btn--sell:not(:disabled):hover { opacity: 0.88; }
+
+.buyout-btn--negotiate {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #fff;
+}
+.buyout-btn--negotiate:not(:disabled):hover { opacity: 0.88; }
+
+.buyout-btn--reject {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.3);
+}
+.buyout-btn--reject:not(:disabled):hover { background: rgba(239,68,68,0.25); }
+
+/* --- Counter-offer sub-form --- */
+.buyout-counter {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.buyout-counter__hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, #9ca3af);
+}
+
+.buyout-counter__input {
+  width: 100%;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  color: var(--text-primary, #f1f5f9);
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.buyout-counter__input:focus {
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.buyout-counter__row {
+  display: flex;
+  gap: 8px;
+}

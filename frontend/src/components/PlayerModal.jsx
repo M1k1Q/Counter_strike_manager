@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import StatBar from './StatBar'
 
 function PlayerModal({
   player,
@@ -102,7 +103,16 @@ function PlayerModal({
         <header className="modal-header">
           <div>
             <h2>{player.player}</h2>
-            <p className="modal-subtitle">{player.role || 'Unassigned role'}</p>
+            <p className="modal-subtitle">
+              {player.selected_role ? (
+                <>
+                  <span className="selected-role-tag">{player.selected_role}</span>
+                  <span className="classified-role-tag"> (ML: {player.role})</span>
+                </>
+              ) : (
+                player.role || 'Unassigned role'
+              )}
+            </p>
           </div>
           <button className="modal-close" type="button" onClick={onClose}>×</button>
         </header>
@@ -126,6 +136,19 @@ function PlayerModal({
               <strong>{isFreeAgent ? 'Free Agent' : getTeamName(player.team_id)}</strong>
             </div>
           </div>
+
+          {/* Stat bars */}
+          {(player.firepower != null || player.sniping != null || player.opening != null || player.clutching != null) && (
+            <div className="modal-stats-section">
+              <StatBar label="Firepower" value={player.firepower} />
+              <StatBar label="Sniping" value={player.sniping} />
+              <StatBar label="Opening" value={player.opening} />
+              <StatBar label="Clutching" value={player.clutching} />
+              <StatBar label="Entrying" value={player.entrying} />
+              <StatBar label="Trading" value={player.trading} />
+              <StatBar label="Utility" value={player.utility} />
+            </div>
+          )}
 
           {/* Offer Amount Section — only for negotiation */}
           {isNegotiationMode && (

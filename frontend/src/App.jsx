@@ -5,9 +5,18 @@ import Navbar from './components/navbar'
 import CareerStart from './components/CareerStart'
 import TeamRoster from './components/TeamRoster'
 import TeamNeeds from './components/TeamNeeds'
+import TeamFormation from './components/TeamFormation'
+import AIBuyoutInbox from './components/AIBuyoutInbox'
+import LoginPage from './components/LoginPage'
 import './App.css'
 
 function App() {
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem('cs_manager_user')
+    return savedUser ? JSON.parse(savedUser) : null
+  })
+  const [token, setToken] = useState(() => localStorage.getItem('cs_manager_token') || null)
+
   const [players, setPlayers] = useState([])
   const [teams, setTeams] = useState([])
   const [manager, setManager] = useState(null)
@@ -16,6 +25,7 @@ function App() {
   const [search, setSearch] = useState('')
   const [playerSort, setPlayerSort] = useState('overall')
   const [playerFilter, setPlayerFilter] = useState('all')
+  const [manageSubTab, setManageSubTab] = useState('roster')
   const [newTeamName, setNewTeamName] = useState('')
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [teamError, setTeamError] = useState(null)
@@ -26,6 +36,20 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activePlayer, setActivePlayer] = useState(null)
+  const [aiBuyoutOffers, setAiBuyoutOffers] = useState([])
+
+  const handleLoginSuccess = (authData) => {
+    setToken(authData.access_token)
+    setUser(authData.user)
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('cs_manager_token')
+    localStorage.removeItem('cs_manager_user')
+    setToken(null)
+    setUser(null)
+  }
+
 
   useEffect(() => {
     async function initGame() {
@@ -43,7 +67,7 @@ function App() {
           fetch('/players'),
           fetch('/teams')
         ])
-        
+
         if (!playersRes.ok) throw new Error(`HTTP ${playersRes.status}`)
         const playersData = await playersRes.json()
         setPlayers(playersData)
@@ -51,6 +75,15 @@ function App() {
         if (teamsRes.ok) {
           const teamsData = await teamsRes.json()
           setTeams(teamsData)
+        }
+
+        // 3. Generate any new AI buyout offers, then fetch pending ones
+        try {
+          await fetch('/ai-buyouts/generate', { method: 'POST' })
+          const offersRes = await fetch('/ai-buyouts/pending')
+          if (offersRes.ok) setAiBuyoutOffers(await offersRes.json())
+        } catch (_) {
+          // Non-fatal — buyout system is best-effort
         }
       } catch (err) {
         console.error('Failed to initialize app:', err)
@@ -106,6 +139,13 @@ function App() {
 
   const refreshAllData = async () => {
     await Promise.all([refreshGameStatus(), refreshAppData()])
+  }
+
+  const refreshBuyoutOffers = async () => {
+    try {
+      const res = await fetch('/ai-buyouts/pending')
+      if (res.ok) setAiBuyoutOffers(await res.json())
+    } catch (_) { }
   }
 
   const handleSelectTeam = async (teamId) => {
@@ -187,11 +227,11 @@ function App() {
     const body = existingNegotiation
       ? JSON.stringify({ offer_amount: offerAmount, message: 'Follow-up negotiation offer' })
       : JSON.stringify({
-          player_id: player.id,
-          target_team_id: selectedTeam.id,
-          offer_amount: offerAmount,
-          message: 'Initial negotiation offer',
-        })
+        player_id: player.id,
+        target_team_id: selectedTeam.id,
+        offer_amount: offerAmount,
+        message: 'Initial negotiation offer',
+      })
 
     const res = await fetch(url, {
       method: 'POST',
@@ -314,6 +354,17 @@ function App() {
     setModalStatus(null)
   }
 
+  if (!token || !user) {
+    return (
+      <>
+        <Navbar activeTab={activeTab} onTabChange={setActiveTab} user={null} onLogout={handleLogout} />
+        <div className="app">
+          <LoginPage onLoginSuccess={handleLoginSuccess} />
+        </div>
+      </>
+    )
+  }
+
   if (!isGameLoaded && loading) {
     return (
       <div className="loader-container">
@@ -324,8 +375,18 @@ function App() {
   }
 
   return (
-    <> 
-      <Navbar activeTab={activeTab} onTabChange={setActiveTab} />
+    <>
+      <Navbar activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={handleLogout} />
+      {/* AI buyout inbox bell — only show when a manager exists */}
+      {manager && (
+
+        <div style={{ position: 'fixed', top: '14px', right: '20px', zIndex: 950 }}>
+          <AIBuyoutInbox
+            offers={aiBuyoutOffers}
+            onRefresh={() => { refreshBuyoutOffers(); refreshAllData(); }}
+          />
+        </div>
+      )}
       <div className="app">
         {!manager ? (
           <CareerStart onStart={handleCareerStart} />
@@ -335,7 +396,7 @@ function App() {
               <div className="toolbar">
                 <div className="search-box">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                   </svg>
                   <input
                     type="text"
@@ -443,6 +504,20 @@ function App() {
                 <div className="dashboard-grid">
                   <div className="teams-section">
                     <h2 className="section-title">Manage Your Team</h2>
+                    {selectedTeam && (
+                      <div className="manage-subtabs">
+                        <button
+                          className={`manage-subtab ${manageSubTab === 'roster' ? 'active' : ''}`}
+                          onClick={() => setManageSubTab('roster')}
+                          id="subtab-roster"
+                        >Roster</button>
+                        <button
+                          className={`manage-subtab ${manageSubTab === 'formation' ? 'active' : ''}`}
+                          onClick={() => setManageSubTab('formation')}
+                          id="subtab-formation"
+                        >Formation</button>
+                      </div>
+                    )}
                     <div className="teams-list">
                       {!selectedTeam && (
                         <div className="team-card">
@@ -456,7 +531,7 @@ function App() {
                           </div>
                         </div>
                       )}
-                      {selectedTeam && (
+                      {selectedTeam && manageSubTab === 'roster' && (
                         <div className="team-card">
                           <div className="team-header">
                             <div className="team-info">
@@ -501,13 +576,17 @@ function App() {
                           </div>
                         </div>
                       )}
-                      
-                      {selectedTeam && (
-                        <TeamNeeds 
-                          team={selectedTeam} 
-                          onRowClick={setActivePlayer} 
-                          refreshTrigger={selectedTeamPlayers.length} 
+
+                      {selectedTeam && manageSubTab === 'roster' && (
+                        <TeamNeeds
+                          team={selectedTeam}
+                          onRowClick={setActivePlayer}
+                          refreshTrigger={selectedTeamPlayers.length}
                         />
+                      )}
+
+                      {selectedTeam && manageSubTab === 'formation' && (
+                        <TeamFormation team={selectedTeam} onSaved={refreshAllData} />
                       )}
                     </div>
                   </div>
@@ -558,89 +637,89 @@ function App() {
                         </div>
                       </div>
                       <div className="manage-market-list">
-                          {marketPlayers.length === 0 ? (
-                            <div className="team-card">
-                              <div className="team-header">
-                                <div className="team-info"><h3>Players on other teams</h3></div>
-                              </div>
-                              <div className="team-roster">
-                                <p className="empty-roster">No players available from other teams.</p>
-                              </div>
+                        {marketPlayers.length === 0 ? (
+                          <div className="team-card">
+                            <div className="team-header">
+                              <div className="team-info"><h3>Players on other teams</h3></div>
                             </div>
-                          ) : (
-                            <>
-                              <h3 className="market-section-title">
-                                Players on other teams
-                                <span className="market-count">{marketPlayers.length} players</span>
-                              </h3>
-                              {marketTeamsSorted.map(([teamName, { players: teamPlayers, ranking }]) => (
-                                <div className="team-card market-team-card" key={teamName}>
-                                  <div className="team-header">
-                                    <div className="team-info">
-                                      <h3>{teamName}</h3>
-                                      <span className="team-rank">Rank #{ranking}</span>
-                                    </div>
-                                    <div className="team-value">
-                                      <span className="label">Players</span>
-                                      <span className="value">{teamPlayers.length}</span>
-                                    </div>
+                            <div className="team-roster">
+                              <p className="empty-roster">No players available from other teams.</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <h3 className="market-section-title">
+                              Players on other teams
+                              <span className="market-count">{marketPlayers.length} players</span>
+                            </h3>
+                            {marketTeamsSorted.map(([teamName, { players: teamPlayers, ranking }]) => (
+                              <div className="team-card market-team-card" key={teamName}>
+                                <div className="team-header">
+                                  <div className="team-info">
+                                    <h3>{teamName}</h3>
+                                    <span className="team-rank">Rank #{ranking}</span>
                                   </div>
-                                  <div className="team-roster">
-                                    <table className="roster-table">
-                                      <thead>
-                                        <tr>
-                                          <th>Player</th>
-                                          <th>Role</th>
-                                          <th>Overall</th>
-                                          <th>IGL</th>
-                                          <th>Market Value</th>
-                                          <th>Action</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {teamPlayers
-                                          .slice()
-                                          .sort((a, b) => (b.Rating ?? 0) - (a.Rating ?? 0))
-                                          .map((player) => {
-                                            const sourceRank = ranking
-                                            const isTopTeamStar = sourceRank <= 5 && (player.Rating ?? 0) >= 82
-                                            return (
-                                              <tr key={player.id} onClick={() => setActivePlayer(player)} className="clickable-row">
-                                                <td>
-                                                  <span className="player-name-cell">{player.player}</span>
-                                                  {isTopTeamStar && (
-                                                    <span className="untouchable-tag" title="Franchise star – very hard to sign">★</span>
-                                                  )}
-                                                </td>
-                                                <td>{player.role || 'Unassigned'}</td>
-                                                <td>{getDisplayRating(player)}</td>
-                                                <td>{player.igl_score != null ? `${player.igl_score.toFixed(0)}%` : '—'}</td>
-                                                <td className="market-value-cell">
-                                                  <span className={`market-value ${isTopTeamStar ? 'market-value--star' : ''}`}>
-                                                    {formatPrice(player.price)}
-                                                  </span>
-                                                </td>
-                                                <td>
-                                                  <button className="btn-secondary btn-sm" type="button" onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    setActivePlayer(player)
-                                                    setActiveNegotiation(null)
-                                                    setModalStatus(null)
-                                                  }}>
-                                                    Negotiate
-                                                  </button>
-                                                </td>
-                                              </tr>
-                                            )
-                                          })}
-                                      </tbody>
-                                    </table>
+                                  <div className="team-value">
+                                    <span className="label">Players</span>
+                                    <span className="value">{teamPlayers.length}</span>
                                   </div>
                                 </div>
-                              ))}
-                            </>
-                          )}
-                        </div>
+                                <div className="team-roster">
+                                  <table className="roster-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Player</th>
+                                        <th>Role</th>
+                                        <th>Overall</th>
+                                        <th>IGL</th>
+                                        <th>Market Value</th>
+                                        <th>Action</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {teamPlayers
+                                        .slice()
+                                        .sort((a, b) => (b.Rating ?? 0) - (a.Rating ?? 0))
+                                        .map((player) => {
+                                          const sourceRank = ranking
+                                          const isTopTeamStar = sourceRank <= 5 && (player.Rating ?? 0) >= 82
+                                          return (
+                                            <tr key={player.id} onClick={() => setActivePlayer(player)} className="clickable-row">
+                                              <td>
+                                                <span className="player-name-cell">{player.player}</span>
+                                                {isTopTeamStar && (
+                                                  <span className="untouchable-tag" title="Franchise star – very hard to sign">★</span>
+                                                )}
+                                              </td>
+                                              <td>{player.role || 'Unassigned'}</td>
+                                              <td>{getDisplayRating(player)}</td>
+                                              <td>{player.igl_score != null ? `${player.igl_score.toFixed(0)}%` : '—'}</td>
+                                              <td className="market-value-cell">
+                                                <span className={`market-value ${isTopTeamStar ? 'market-value--star' : ''}`}>
+                                                  {formatPrice(player.price)}
+                                                </span>
+                                              </td>
+                                              <td>
+                                                <button className="btn-secondary btn-sm" type="button" onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  setActivePlayer(player)
+                                                  setActiveNegotiation(null)
+                                                  setModalStatus(null)
+                                                }}>
+                                                  Negotiate
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          )
+                                        })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
 
                     </div>
                   )}

@@ -1,7 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import players, teams, games, negotiations, roster
-from app.database import engine, Base
+
+from app.api.routes.players import router as players_router
+from app.api.routes.teams import router as teams_router
+from app.api.routes.games import router as games_router
+from app.api.routes.negotiations import router as negotiations_router
+from app.api.routes.roster import router as roster_router
+from app.api.routes.ai_buyouts import router as ai_buyouts_router
+from app.api.routes.auth import router as auth_router
+from app.infrastructure.database import engine, Base
 from app import models
 
 Base.metadata.create_all(bind=engine)
@@ -16,11 +23,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(players.router)
-app.include_router(teams.router)
-app.include_router(games.router)
-app.include_router(negotiations.router)
-app.include_router(roster.router)
+app.include_router(auth_router)
+app.include_router(players_router)
+app.include_router(teams_router)
+app.include_router(games_router)
+app.include_router(negotiations_router)
+app.include_router(roster_router)
+app.include_router(ai_buyouts_router)
+
+
 
 @app.get("/")
 def root():

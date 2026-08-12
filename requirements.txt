@@ -2,3 +2,12 @@ fastapi
 uvicorn
 sqlalchemy
 pymysql
+pandas
+bs4
+selenium
+selenium-stealth
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+pyjwt
+bcrypt

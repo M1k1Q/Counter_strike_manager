@@ -1,4 +1,4 @@
-function Navbar({ activeTab, onTabChange }) {
+function Navbar({ activeTab, onTabChange, user, onLogout }) {
   return (
     <nav className="navbar">
       <div className="nav-container">
@@ -20,9 +20,20 @@ function Navbar({ activeTab, onTabChange }) {
             <a href="#" className={`nav-link ${activeTab === 'players' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onTabChange('players') }}>Players</a>
           </li>
         </ul>
+
+        {user && (
+          <div className="user-profile-badge">
+            <span className="user-avatar">👤</span>
+            <span className="user-name">{user.username}</span>
+            <button className="btn-logout" onClick={onLogout} title="Log Out">
+              Logout 🚪
+            </button>
+          </div>
+        )}
       </div>
     </nav>
   )
 }
+
 
 export default Navbar

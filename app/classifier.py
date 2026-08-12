@@ -27,9 +27,9 @@ ROLE_ARCHETYPES: dict[str, dict[str, tuple[float, float]]] = {
         "Sniping":   (3.0, 0.2),
     },
     "entry": {
-        "Entrying":  (85.0, 5.0),   # Dominant signal
-        "Opening":   (70.0, 1.8),   # Takes early duels
-        "Firepower": (55.0, 0.8),   # Adjusted: space-making entries often sacrifice firepower
+        "Entrying":  (85.0, 5.0), 
+        "Opening":   (70.0, 1.8),   
+        "Firepower": (55.0, 0.8),   
         "Impact":    (60.0, 0.8),
         "Sniping":   (3.0,  3.0),   
         "Trading":   (40.0, 0.5),
@@ -174,9 +174,7 @@ def classify_players(df_raw: pd.DataFrame) -> pd.DataFrame:
     result["igl_score"] = igl_scores
     result["is_igl"] = False
 
-    # ------------------------------------------------------------------
-    # Per-team IGL selection + Calling Style Assignment
-    # ------------------------------------------------------------------
+    # Per-team IGL selection + Calling Style Assignment   
     if "Team" in result.columns:
         team_groups = result[result["Team"].notna() & (result["Team"] != "")].groupby("Team")
         for team, group in team_groups:

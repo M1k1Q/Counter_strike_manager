@@ -119,4 +119,52 @@ def get_igl_candidates(team_id: int, db: Session = Depends(get_db)):
     # Sort candidates by IGL score descending
     candidates.sort(key=lambda x: x["igl_score"], reverse=True)
     return candidates
-
+
+@router.put("/teams/{team_id}/roster", response_model=list[schemas.PlayerResponse])
+def update_active_roster(team_id: int, roster_update: schemas.TeamRosterUpdate, db: Session = Depends(get_db)):
+    """Set the active 5-man roster for a team. Exactly 5 player IDs must be provided."""
+    team = db.query(models.Team).filter(models.Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    active_ids = roster_update.active_player_ids
+    if len(active_ids) != 5:
+        raise HTTPException(status_code=400, detail=f"A formation must have exactly 5 active players. Got {len(active_ids)}.")
+
+    team_player_ids = {p.id for p in team.players}
+    invalid_ids = [pid for pid in active_ids if pid not in team_player_ids]
+    if invalid_ids:
+        raise HTTPException(status_code=400, detail=f"Player IDs {invalid_ids} do not belong to this team.")
+
+    for player in team.players:
+        player.is_active_roster = player.id in set(active_ids)
+
+    db.commit()
+    db.refresh(team)
+    return team.players
+
+@router.patch("/players/{player_id}/role", response_model=schemas.PlayerResponse)
+def update_player_role(player_id: int, role_update: schemas.PlayerRoleUpdate, db: Session = Depends(get_db)):
+    player = db.query(models.Player).filter(models.Player.id == player_id).first()
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    
+    new_role = role_update.role
+    if new_role and new_role.lower() == "igl":
+        player.is_igl = True
+        player.selected_role = new_role
+        
+        # Set is_igl=False for all other players on the same team
+        if player.team_id:
+            other_players = db.query(models.Player).filter(
+                models.Player.team_id == player.team_id,
+                models.Player.id != player.id
+            ).all()
+            for op in other_players:
+                op.is_igl = False
+    else:
+        player.selected_role = new_role
+        
+    db.commit()
+    db.refresh(player)
+    return player
