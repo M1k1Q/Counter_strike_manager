@@ -7,3 +7,8 @@ class NegotiationStatus(str, Enum):
     REJECTED = "rejected"
     FAILED = "failed"
     COLLAPSED = "collapsed"
+
+class MatchFormats(str, Enum):
+    Bo1 = "Bo1"
+    Bo3 = "Bo3"
+    Bo5 = "Bo5"

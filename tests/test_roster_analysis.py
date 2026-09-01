@@ -1,7 +1,17 @@
 import unittest
 from unittest.mock import MagicMock
 from app import models
-from app.routes.roster import analyze_roster, select_IGL
+from app.services.roster_service import RosterService
+
+
+def analyze_roster(team, db):
+    """Thin wrapper to preserve old function signature for tests."""
+    return RosterService(db).analyze(team)
+
+
+def select_IGL(team, db):
+    """Thin wrapper to preserve old function signature for tests."""
+    return RosterService(db).select_igl(team)
 
 class TestRosterAnalysis(unittest.TestCase):
     def test_empty_team(self):

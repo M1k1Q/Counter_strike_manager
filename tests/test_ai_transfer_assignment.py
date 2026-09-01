@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app import models
-from app.routes.ai_transfers import handle_ai_replacement
+from app.services.transfer_service import handle_ai_replacement
 
 
 def run_transfer_assignment_check():

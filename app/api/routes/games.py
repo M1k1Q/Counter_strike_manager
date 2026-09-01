@@ -34,7 +34,7 @@ def select_team(team_id: int, db: Session = Depends(get_db)):
     if not manager:
         raise HTTPException(status_code=404, detail="No active career found")
 
-    team = db.query(models.Team).filter(models.Team.id == team_id).first()
+    team = db.query(models.Team).filter(models.Team.id == team_id).first    ()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
