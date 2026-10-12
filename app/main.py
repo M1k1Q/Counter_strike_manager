@@ -8,6 +8,7 @@ from app.api.routes.negotiations import router as negotiations_router
 from app.api.routes.roster import router as roster_router
 from app.api.routes.ai_buyouts import router as ai_buyouts_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.tournaments import router as tournaments_router
 from app.infrastructure.database import engine, Base
 from app import models
 
@@ -30,6 +31,7 @@ app.include_router(games_router)
 app.include_router(negotiations_router)
 app.include_router(roster_router)
 app.include_router(ai_buyouts_router)
+app.include_router(tournaments_router)
 
 
 

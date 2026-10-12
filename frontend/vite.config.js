@@ -12,6 +12,7 @@ export default defineConfig({
       '/select-team': 'http://127.0.0.1:8000',
       '/negotiations': 'http://127.0.0.1:8000',
       '/ai-buyouts': 'http://127.0.0.1:8000',
+      '/tournaments': 'http://127.0.0.1:8000',
       '/api': 'http://127.0.0.1:8000',
     },
   },

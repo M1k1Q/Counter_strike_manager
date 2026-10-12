@@ -68,7 +68,11 @@ def seed_database():
                 unique_teams.append(str(team_name))
 
         for rank, team_name in enumerate(unique_teams, 1):
-            db_team = models.Team(name=team_name, ranking=rank)
+            db_team = models.Team(
+                name=team_name,
+                ranking=rank,
+                ranking_points=max(0, (len(unique_teams) + 1 - rank) * 100),
+            )
             db.add(db_team)
             db.flush()
             team_map[team_name] = db_team.id
@@ -78,6 +82,7 @@ def seed_database():
         # ------------------------------------------------------------------
         print("Seeding players...")
         team_rank_map = {t: i + 1 for i, t in enumerate(unique_teams)}
+        team_active_roster_count: dict[int, int] = {}
         for _, row in df.iterrows():
             raw_team_name = row.get("Team")
             if pd.isna(raw_team_name) or str(raw_team_name).strip() == "":
@@ -88,6 +93,13 @@ def seed_database():
                 team_name = str(raw_team_name)
                 team_id = team_map.get(team_name)
                 team_rank = team_rank_map.get(team_name)
+
+            is_active = False
+            if team_id is not None:
+                current_count = team_active_roster_count.get(team_id, 0)
+                if current_count < 5:
+                    is_active = True
+                    team_active_roster_count[team_id] = current_count + 1
 
             db_player = models.Player(
                 player         = str(row["Player"]),
@@ -110,6 +122,7 @@ def seed_database():
                 confidence     = _f(row, "confidence")  or 0.0,
                 igl_score      = _f(row, "igl_score")   or 0.0,
                 is_igl         = bool(row.get("is_igl", False)),
+                is_active_roster = is_active,
                 #calculating ingame rating based on stats out of 100, role and team ranking
                 Rating         = calculate_rating(row, team_rank)
             )

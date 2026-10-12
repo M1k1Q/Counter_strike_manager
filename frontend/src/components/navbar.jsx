@@ -14,6 +14,9 @@ function Navbar({ activeTab, onTabChange, user, onLogout }) {
             <a href="#" className={`nav-link ${activeTab === 'manage' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onTabChange('manage') }}>Manage</a>
           </li>
           <li>
+            <a href="#" className={`nav-link ${activeTab === 'tournaments' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onTabChange('tournaments') }}>Tournaments 🏆</a>
+          </li>
+          <li>
             <a href="#" className={`nav-link ${activeTab === 'teams' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onTabChange('teams') }}>Teams</a>
           </li>
           <li>

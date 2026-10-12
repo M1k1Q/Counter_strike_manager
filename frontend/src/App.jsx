@@ -6,8 +6,10 @@ import CareerStart from './components/CareerStart'
 import TeamRoster from './components/TeamRoster'
 import TeamNeeds from './components/TeamNeeds'
 import TeamFormation from './components/TeamFormation'
+import RosterSwap from './components/RosterSwap'
 import AIBuyoutInbox from './components/AIBuyoutInbox'
 import LoginPage from './components/LoginPage'
+import TournamentCalendar from './components/TournamentCalendar'
 import './App.css'
 
 function App() {
@@ -502,7 +504,7 @@ function App() {
 
               {activeTab === 'manage' && (
                 <div className="dashboard-grid">
-                  <div className="teams-section">
+                  <div className="teams-section" style={manageSubTab !== 'transfers' ? { gridColumn: '1 / -1' } : undefined}>
                     <h2 className="section-title">Manage Your Team</h2>
                     {selectedTeam && (
                       <div className="manage-subtabs">
@@ -516,6 +518,11 @@ function App() {
                           onClick={() => setManageSubTab('formation')}
                           id="subtab-formation"
                         >Formation</button>
+                        <button
+                          className={`manage-subtab ${manageSubTab === 'transfers' ? 'active' : ''}`}
+                          onClick={() => setManageSubTab('transfers')}
+                          id="subtab-transfers"
+                        >Manage</button>
                       </div>
                     )}
                     <div className="teams-list">
@@ -531,7 +538,19 @@ function App() {
                           </div>
                         </div>
                       )}
+
+                      {/* ROSTER SUB-TAB: Swap players between active/bench */}
                       {selectedTeam && manageSubTab === 'roster' && (
+                        <RosterSwap team={selectedTeam} onSaved={refreshAllData} />
+                      )}
+
+                      {/* FORMATION SUB-TAB: Assign roles + map-wise formations */}
+                      {selectedTeam && manageSubTab === 'formation' && (
+                        <TeamFormation team={selectedTeam} onSaved={refreshAllData} />
+                      )}
+
+                      {/* MANAGE/TRANSFERS SUB-TAB: Current roster with release + market */}
+                      {selectedTeam && manageSubTab === 'transfers' && (
                         <div className="team-card">
                           <div className="team-header">
                             <div className="team-info">
@@ -577,21 +596,17 @@ function App() {
                         </div>
                       )}
 
-                      {selectedTeam && manageSubTab === 'roster' && (
+                      {selectedTeam && manageSubTab === 'transfers' && (
                         <TeamNeeds
                           team={selectedTeam}
                           onRowClick={setActivePlayer}
                           refreshTrigger={selectedTeamPlayers.length}
                         />
                       )}
-
-                      {selectedTeam && manageSubTab === 'formation' && (
-                        <TeamFormation team={selectedTeam} onSaved={refreshAllData} />
-                      )}
                     </div>
                   </div>
 
-                  {selectedTeam && (
+                  {selectedTeam && manageSubTab === 'transfers' && (
                     <div className="teams-section">
                       <h2 className="section-title">Roster market</h2>
                       <div className="manage-market-list">
@@ -726,6 +741,14 @@ function App() {
 
                   {teamError && <p className="form-error">{teamError}</p>}
                 </div>
+              )}
+
+              {activeTab === 'tournaments' && (
+                <TournamentCalendar
+                  manager={manager}
+                  selectedTeam={selectedTeam}
+                  onUpdateManager={setManager}
+                />
               )}
 
               {activeTab === 'teams' && (

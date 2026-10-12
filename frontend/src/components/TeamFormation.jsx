@@ -4,8 +4,22 @@ import { CustomSelect } from './CustomSelect'
 
 const SLOT_LABELS = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5']
 
+const CS_MAPS = [
+  { value: 'default', label: 'Default (All Maps)' },
+  { value: 'mirage', label: 'Mirage' },
+  { value: 'inferno', label: 'Inferno' },
+  { value: 'nuke', label: 'Nuke' },
+  { value: 'overpass', label: 'Overpass' },
+  { value: 'ancient', label: 'Ancient' },
+  { value: 'anubis', label: 'Anubis' },
+  { value: 'dust2', label: 'Dust II' },
+]
+
 function TeamFormation({ team, onSaved }) {
   const players = team?.players || []
+
+  const [selectedMap, setSelectedMap] = useState('default')
+  const [selectedSide, setSelectedSide] = useState('ct')
 
   // Pre-select currently active players
   const [selectedIds, setSelectedIds] = useState(
@@ -120,10 +134,43 @@ function TeamFormation({ team, onSaved }) {
   return (
     <div className="formation-container">
       <div className="formation-header">
-        <h3>Set Starting Formation</h3>
+        <h3>Assign Player Roles</h3>
         <span className="formation-counter">
           <strong>{selectedIds.length}</strong> / 5 selected
         </span>
+      </div>
+
+      {/* Map-wise Formation Selector */}
+      <div className="map-formation-section">
+        <div className="map-formation-label">Map-wise Formation</div>
+        <div className="map-selector-row">
+          {CS_MAPS.map(m => (
+            <button
+              key={m.value}
+              className={`map-chip ${selectedMap === m.value ? 'active' : ''}`}
+              onClick={() => setSelectedMap(m.value)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <div className="side-toggle-row">
+          <button
+            className={`side-toggle ct ${selectedSide === 'ct' ? 'active' : ''}`}
+            onClick={() => setSelectedSide('ct')}
+          >
+            <span className="side-icon">🛡</span> CT Side
+          </button>
+          <button
+            className={`side-toggle t ${selectedSide === 't' ? 'active' : ''}`}
+            onClick={() => setSelectedSide('t')}
+          >
+            <span className="side-icon">💥</span> T Side
+          </button>
+        </div>
+        <div className="map-formation-hint">
+          Configuring: <strong>{CS_MAPS.find(m => m.value === selectedMap)?.label}</strong> — <strong>{selectedSide === 'ct' ? 'CT Side' : 'T Side'}</strong>
+        </div>
       </div>
 
       {/* Visual 5-slot pitch */}

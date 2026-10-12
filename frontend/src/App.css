@@ -1747,3 +1747,327 @@ tbody tr:last-child td {
   font-weight: 600;
   color: var(--text-primary);
 }
+
+/* ============================================
+   ROSTER SWAP COMPONENT
+   ============================================ */
+.roster-swap-container {
+  padding: 1rem 0;
+}
+
+.roster-swap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.roster-swap-header h3 {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.roster-swap-counter {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.roster-swap-counter strong {
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.roster-swap-columns {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.roster-swap-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 3rem;
+}
+
+.swap-arrows {
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.roster-swap-column {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.rsc-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.rsc-icon {
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+.rsc-icon.bench-icon {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+.rsc-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.rsc-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+}
+
+.rsc-list {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.rsc-empty {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  padding: 1.5rem;
+  text-align: center;
+  opacity: 0.7;
+}
+
+/* Individual roster swap player card */
+.roster-swap-player {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.roster-swap-player:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.roster-swap-player.active-player {
+  border-left: 3px solid var(--accent);
+}
+
+.roster-swap-player.bench-player {
+  border-left: 3px solid rgba(255, 255, 255, 0.1);
+  opacity: 0.85;
+}
+
+.rsp-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.rsp-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rsp-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+
+.rsp-rating {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.rsp-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.rsp-swap-btn {
+  width: 100%;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.rsp-swap-btn.promote {
+  background: rgba(60, 180, 80, 0.1);
+  color: #51cf66;
+  border-color: rgba(60, 180, 80, 0.3);
+}
+
+.rsp-swap-btn.promote:hover {
+  background: rgba(60, 180, 80, 0.2);
+  border-color: #51cf66;
+}
+
+.rsp-swap-btn.demote {
+  background: rgba(255, 107, 107, 0.08);
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.25);
+}
+
+.rsp-swap-btn.demote:hover {
+  background: rgba(255, 107, 107, 0.15);
+  border-color: #ff6b6b;
+}
+
+.roster-swap-save-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+
+/* ============================================
+   MAP-WISE FORMATION SELECTOR
+   ============================================ */
+.map-formation-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.map-formation-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+.map-selector-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.map-chip {
+  padding: 0.38rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.map-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.map-chip.active {
+  background: rgba(232, 122, 30, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.side-toggle-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.side-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.side-toggle .side-icon {
+  font-size: 1rem;
+}
+
+.side-toggle:hover {
+  border-color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.side-toggle.ct.active {
+  background: rgba(70, 140, 230, 0.12);
+  border-color: rgba(70, 140, 230, 0.5);
+  color: #6aadff;
+}
+
+.side-toggle.t.active {
+  background: rgba(230, 170, 50, 0.12);
+  border-color: rgba(230, 170, 50, 0.5);
+  color: #f0c040;
+}
+
+.map-formation-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.map-formation-hint strong {
+  color: var(--text-primary);
+}
+
+/* Responsive: stack roster swap on small screens */
+@media (max-width: 768px) {
+  .roster-swap-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .roster-swap-divider {
+    padding: 0;
+    transform: rotate(90deg);
+  }
+}

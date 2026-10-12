@@ -73,6 +73,7 @@ class Team(Base):
     id      = Column(Integer, primary_key=True, index=True)
     name    = Column(String(100), unique=True, nullable=False)
     ranking = Column(Integer, nullable=True)
+    ranking_points = Column(Integer, default=0)
     budget  = Column(Integer, default=1_000_000)  # AI transfer budget
 
     players = relationship("Player", backref="team", foreign_keys=[Player.team_id])
@@ -234,4 +235,120 @@ class User(Base):
 
     manager_id      = Column(Integer, ForeignKey("managers.id"), nullable=True)
     manager         = relationship("Manager")
+
+
+class Tournament(Base):
+    __tablename__ = "tournaments"
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    name               = Column(String(100), nullable=False)
+    tier               = Column(String(30), default="S-Tier")  # Major, S-Tier, A-Tier
+    prize_pool         = Column(Integer, default=500_000)
+    year               = Column(Integer, default=2026)
+    month              = Column(Integer, default=1)
+    status             = Column(String(30), default="upcoming")  # upcoming, active, completed
+    min_rank_required  = Column(Integer, default=8)  # top N teams invited
+    format             = Column(String(20), default="Bo3")   # Bo1, Bo3, Bo5
+    champion_id        = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    created_at         = Column(DateTime, default=datetime.utcnow)
+
+    champion     = relationship("Team", foreign_keys=[champion_id])
+    participants = relationship("TournamentParticipant", back_populates="tournament", cascade="all, delete-orphan")
+    matches      = relationship("Match", back_populates="tournament", cascade="all, delete-orphan")
+
+
+class TournamentParticipant(Base):
+    __tablename__ = "tournament_participants"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False)
+    team_id       = Column(Integer, ForeignKey("teams.id"), nullable=False)
+    seed          = Column(Integer, nullable=False)
+    group_name    = Column(String(10), nullable=True)  # "A" or "B"
+    wins          = Column(Integer, default=0)
+    losses        = Column(Integer, default=0)
+    rounds_won    = Column(Integer, default=0)
+    rounds_lost   = Column(Integer, default=0)
+    eliminated    = Column(Boolean, default=False)
+    placement     = Column(String(50), nullable=True)  # "Champion", "Runner-Up", "Semifinalist", "Group Stage"
+
+    tournament = relationship("Tournament", back_populates="participants")
+    team       = relationship("Team")
+
+
+class Match(Base):
+    __tablename__ = "matches"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=True)
+    stage         = Column(String(30), default="group_stage")  # group_stage, semi_final, grand_final
+    group_name    = Column(String(10), nullable=True)          # "A", "B", or None
+    round_name    = Column(String(50), nullable=True)          # e.g. "Group A - Round 1", "Semi-Final 1"
+    team1_id      = Column(Integer, ForeignKey("teams.id"), nullable=False)
+    team2_id      = Column(Integer, ForeignKey("teams.id"), nullable=False)
+    format        = Column(String(10), default="Bo3")          # Bo1, Bo3, Bo5
+    status        = Column(String(30), default="scheduled")    # scheduled, in_progress, completed
+    winner_id     = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    team1_score   = Column(Integer, default=0)                 # Maps won by team 1
+    team2_score   = Column(Integer, default=0)                 # Maps won by team 2
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+    tournament   = relationship("Tournament", back_populates="matches")
+    team1        = relationship("Team", foreign_keys=[team1_id])
+    team2        = relationship("Team", foreign_keys=[team2_id])
+    winner       = relationship("Team", foreign_keys=[winner_id])
+    maps         = relationship("MapResult", back_populates="match", cascade="all, delete-orphan")
+    player_stats = relationship("PlayerMatchStat", back_populates="match", cascade="all, delete-orphan")
+
+
+class MapResult(Base):
+    __tablename__ = "map_results"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    match_id    = Column(Integer, ForeignKey("matches.id"), nullable=False)
+    map_number  = Column(Integer, default=1)
+    map_name    = Column(String(50), nullable=False)
+    team1_score = Column(Integer, default=0)  # rounds won
+    team2_score = Column(Integer, default=0)  # rounds won
+    overtime    = Column(Boolean, default=False)
+    winner_id   = Column(Integer, ForeignKey("teams.id"), nullable=True)
+
+    match        = relationship("Match", back_populates="maps")
+    winner       = relationship("Team", foreign_keys=[winner_id])
+    player_stats = relationship("PlayerMatchStat", back_populates="map_result", cascade="all, delete-orphan")
+
+
+class PlayerMatchStat(Base):
+    __tablename__ = "player_match_stats"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    match_id      = Column(Integer, ForeignKey("matches.id"), nullable=False)
+    map_result_id = Column(Integer, ForeignKey("map_results.id"), nullable=True)
+    player_id     = Column(Integer, ForeignKey("players.id"), nullable=False)
+    team_id       = Column(Integer, ForeignKey("teams.id"), nullable=False)
+
+    kills   = Column(Integer, default=0)
+    deaths  = Column(Integer, default=0)
+    assists = Column(Integer, default=0)
+    adr     = Column(Float, default=0.0)
+    rating  = Column(Float, default=1.0)
+    is_mvp  = Column(Boolean, default=False)
+
+    match      = relationship("Match", back_populates="player_stats")
+    map_result = relationship("MapResult", back_populates="player_stats")
+    player     = relationship("Player")
+    team       = relationship("Team")
+
+
+class CalendarState(Base):
+    __tablename__ = "calendar_states"
+
+    id                   = Column(Integer, primary_key=True, index=True)
+    current_year         = Column(Integer, default=2026)
+    current_month        = Column(Integer, default=1)
+    manager_id           = Column(Integer, ForeignKey("managers.id"), nullable=True)
+    active_tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=True)
+
+    manager           = relationship("Manager")
+    active_tournament = relationship("Tournament", foreign_keys=[active_tournament_id])
 
