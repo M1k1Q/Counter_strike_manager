@@ -906,6 +906,12 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
             {selectedScoreboardMatch.maps?.length > 0 && (
               <>
                 <div className="map-tabs-row">
+                  <button
+                    className={`map-tab-btn ${activeScoreboardMapIndex === -1 ? 'active' : ''}`}
+                    onClick={() => setActiveScoreboardMapIndex(-1)}
+                  >
+                    Overall Series
+                  </button>
                   {selectedScoreboardMatch.maps.map((mapData, idx) => (
                     <button
                       key={mapData.id}
@@ -920,19 +926,57 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
 
                 {/* Active Map Detail */}
                 {(() => {
-                  const currentMap = selectedScoreboardMatch.maps[activeScoreboardMapIndex]
-                  if (!currentMap) return null
+                  const isOverall = activeScoreboardMapIndex === -1
+                  const currentMap = isOverall ? null : selectedScoreboardMatch.maps[activeScoreboardMapIndex]
+                  if (!isOverall && !currentMap) return null
+
+                  const team1Rounds = isOverall
+                    ? selectedScoreboardMatch.maps.reduce((sum, mapData) => sum + mapData.team1_score, 0)
+                    : currentMap.team1_score
+                  const team2Rounds = isOverall
+                    ? selectedScoreboardMatch.maps.reduce((sum, mapData) => sum + mapData.team2_score, 0)
+                    : currentMap.team2_score
+                  const allStats = isOverall
+                    ? Object.values(selectedScoreboardMatch.maps.reduce((players, mapData) => {
+                        for (const stat of mapData.player_stats) {
+                          const key = `${stat.team_id}:${stat.player_id}`
+                          const roundsPlayed = mapData.team1_score + mapData.team2_score
+                          const existing = players[key] || {
+                            ...stat,
+                            kills: 0,
+                            deaths: 0,
+                            assists: 0,
+                            adr: 0,
+                            rating: 0,
+                            is_mvp: false,
+                            roundsPlayed: 0,
+                          }
+                          existing.kills += stat.kills
+                          existing.deaths += stat.deaths
+                          existing.assists += stat.assists
+                          existing.adr += stat.adr * roundsPlayed
+                          existing.rating += stat.rating * roundsPlayed
+                          existing.roundsPlayed += roundsPlayed
+                          players[key] = existing
+                        }
+                        return players
+                      }, {})).map((stat) => ({
+                        ...stat,
+                        adr: stat.roundsPlayed ? stat.adr / stat.roundsPlayed : 0,
+                        rating: stat.roundsPlayed ? stat.rating / stat.roundsPlayed : 0,
+                      })).sort((a, b) => b.kills - a.kills)
+                    : currentMap.player_stats
 
                   // Split stats by team
-                  const team1Stats = currentMap.player_stats.filter(
+                  const team1Stats = allStats.filter(
                     (s) => s.team_id === selectedScoreboardMatch.team1_id
                   )
-                  const team2Stats = currentMap.player_stats.filter(
+                  const team2Stats = allStats.filter(
                     (s) => s.team_id === selectedScoreboardMatch.team2_id
                   )
 
                   const maxMapKills = Math.max(
-                    ...currentMap.player_stats.map((s) => s.kills),
+                    ...allStats.map((s) => s.kills),
                     1
                   )
                   const totalT1Kills = team1Stats.reduce((sum, s) => sum + s.kills, 0)
@@ -942,12 +986,13 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       <div className="map-detail-banner">
                         <span className="map-name-display">
-                          🗺️ {currentMap.map_name}
-                          {currentMap.overtime && <span className="ot-badge">OVERTIME</span>}
+                          {isOverall ? 'Overall Series' : `🗺️ ${currentMap.map_name}`}
+                          {!isOverall && currentMap.overtime && <span className="ot-badge">OVERTIME</span>}
                         </span>
                         <span className="map-score-display">
-                          {selectedScoreboardMatch.team1_name} {currentMap.team1_score} :{' '}
-                          {currentMap.team2_score} {selectedScoreboardMatch.team2_name}
+                          {isOverall
+                            ? `${selectedScoreboardMatch.team1_name} ${selectedScoreboardMatch.team1_score} - ${selectedScoreboardMatch.team2_score} ${selectedScoreboardMatch.team2_name}`
+                            : `${selectedScoreboardMatch.team1_name} ${currentMap.team1_score} : ${currentMap.team2_score} ${selectedScoreboardMatch.team2_name}`}
                         </span>
                       </div>
 
@@ -956,7 +1001,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                         <div className="team-scoreboard-title">
                           <span>{selectedScoreboardMatch.team1_name}</span>
                           <span className="seed-num">
-                            ({currentMap.team1_score} rounds, {totalT1Kills} frags)
+                            ({team1Rounds} rounds won, {totalT1Kills} frags)
                           </span>
                         </div>
                         <table className="cs-scoreboard-table">
@@ -974,7 +1019,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                           </thead>
                           <tbody>
                             {team1Stats.map((stat) => {
-                              const isTop = stat.kills === maxMapKills
+                              const isTop = !isOverall && stat.kills === maxMapKills
                               const diff = stat.kills - stat.deaths
                               const sharePct = totalT1Kills > 0 ? (stat.kills / totalT1Kills) * 100 : 20
                               const ratingClass =
@@ -990,7 +1035,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                                     <span className="player-scoreboard-name">
                                       {stat.player_name}
                                       {stat.role && <span className="role-pill">{stat.role}</span>}
-                                      {stat.is_mvp && <span title="Map MVP">⭐</span>}
+                                      {!isOverall && stat.is_mvp && <span title="Map MVP">⭐</span>}
                                       {isTop && <span title="Top Fragger of the Map">🔥</span>}
                                     </span>
                                   </td>
@@ -1032,7 +1077,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                         <div className="team-scoreboard-title">
                           <span>{selectedScoreboardMatch.team2_name}</span>
                           <span className="seed-num">
-                            ({currentMap.team2_score} rounds, {totalT2Kills} frags)
+                            ({team2Rounds} rounds won, {totalT2Kills} frags)
                           </span>
                         </div>
                         <table className="cs-scoreboard-table">
@@ -1050,7 +1095,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                           </thead>
                           <tbody>
                             {team2Stats.map((stat) => {
-                              const isTop = stat.kills === maxMapKills
+                              const isTop = !isOverall && stat.kills === maxMapKills
                               const diff = stat.kills - stat.deaths
                               const sharePct = totalT2Kills > 0 ? (stat.kills / totalT2Kills) * 100 : 20
                               const ratingClass =
@@ -1066,7 +1111,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                                     <span className="player-scoreboard-name">
                                       {stat.player_name}
                                       {stat.role && <span className="role-pill">{stat.role}</span>}
-                                      {stat.is_mvp && <span title="Map MVP">⭐</span>}
+                                      {!isOverall && stat.is_mvp && <span title="Map MVP">⭐</span>}
                                       {isTop && <span title="Top Fragger of the Map">🔥</span>}
                                     </span>
                                   </td>

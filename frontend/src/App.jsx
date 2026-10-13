@@ -336,6 +336,16 @@ function App() {
   const freeAgents = players.filter(p => p.team_id === null)
   const marketPlayers = selectedTeam ? players.filter(p => p.team_id !== null && p.team_id !== selectedTeam.id) : []
   const selectedTeamPlayers = selectedTeam?.players || []
+  const sortedTeams = teams.slice().sort((a, b) => {
+    const rankA = Number(a.ranking)
+    const rankB = Number(b.ranking)
+    const hasRankA = a.ranking !== null && a.ranking !== undefined && Number.isFinite(rankA)
+    const hasRankB = b.ranking !== null && b.ranking !== undefined && Number.isFinite(rankB)
+
+    if (hasRankA !== hasRankB) return hasRankA ? -1 : 1
+    if (hasRankA && rankA !== rankB) return rankA - rankB
+    return (a.name || '').localeCompare(b.name || '')
+  })
   const getTeamName = (teamId) => teams.find((team) => team.id === teamId)?.name || 'Unknown'
 
   // Group market players by team
@@ -457,7 +467,7 @@ function App() {
                     <h3>Choose your team</h3>
                     <p>Select a squad to manage from the available clubs below.</p>
                     <div className="team-selection-grid">
-                      {teams.map((team) => (
+                      {sortedTeams.map((team) => (
                         <div key={team.id} className={`team-card-small ${selectedTeam?.id === team.id ? 'selected' : ''}`}>
                           <div>
                             <strong>{team.name}</strong>
@@ -757,7 +767,7 @@ function App() {
                     <h2 className="section-title">Teams</h2>
                     <div className="teams-list">
                       {teams.length === 0 && !loading && <p className="text-muted">No teams available.</p>}
-                      {teams.map(team => (
+                      {sortedTeams.map(team => (
                         <TeamRoster key={team.id} team={team} searchQuery={search} />
                       ))}
                     </div>
