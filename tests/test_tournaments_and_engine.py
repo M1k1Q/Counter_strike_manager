@@ -163,9 +163,9 @@ def test_series_simulation_bo3(test_db):
 def test_tournament_calendar_lifecycle(test_db):
     """
     Test full 16-team tournament calendar workflow:
-    1. Seeding 16 teams into Group A and Group B (8 teams each)
-    2. Group stage matches played (56 matches total)
-    3. Advancement to Quarter-Finals (4 matches, Bo3)
+    1. Seeding 16 teams into four groups of four
+    2. Group stage matches played (24 matches total)
+    3. Top two from each group advance to Quarter-Finals (4 matches, Bo3)
     4. Advancement to Semi-Finals (2 matches, Bo3)
     5. Grand Final (1 match, Bo5) and crowning champion
     6. Tournament MVP & EVPs awarded
@@ -184,14 +184,18 @@ def test_tournament_calendar_lifecycle(test_db):
 
     # 16 participants seeded
     assert len(tournament.participants) == 16
-    group_a = [p for p in tournament.participants if p.group_name == "A"]
-    group_b = [p for p in tournament.participants if p.group_name == "B"]
-    assert len(group_a) == 8
-    assert len(group_b) == 8
+    assert {
+        group_name: sum(p.group_name == group_name for p in tournament.participants)
+        for group_name in ["A", "B", "C", "D"]
+    } == {"A": 4, "B": 4, "C": 4, "D": 4}
 
-    # 56 group stage matches created (28 per group)
+    # 24 group stage matches created (6 per group)
     group_matches = [m for m in tournament.matches if m.stage == MatchStage.GROUP_STAGE.value]
-    assert len(group_matches) == 56
+    assert len(group_matches) == 24
+    assert {
+        group_name: sum(m.group_name == group_name for m in group_matches)
+        for group_name in ["A", "B", "C", "D"]
+    } == {"A": 6, "B": 6, "C": 6, "D": 6}
 
     # Simulate all group stage matches
     for m in group_matches:
@@ -202,6 +206,29 @@ def test_tournament_calendar_lifecycle(test_db):
     # Quarter-finals should have been automatically generated (4 matches)!
     qf_matches = [m for m in tournament.matches if m.stage == MatchStage.QUARTER_FINAL.value]
     assert len(qf_matches) == 4
+    assert sum(not p.eliminated for p in tournament.participants) == 8
+    sorted_groups = {}
+    for group_name in ["A", "B", "C", "D"]:
+        sorted_groups[group_name] = sorted(
+            (p for p in tournament.participants if p.group_name == group_name),
+            key=lambda participant: (
+                participant.wins,
+                participant.rounds_won - participant.rounds_lost,
+                -participant.seed,
+            ),
+            reverse=True,
+        )
+        assert all(not p.eliminated for p in sorted_groups[group_name][:2])
+        assert all(p.eliminated for p in sorted_groups[group_name][2:])
+    assert {
+        frozenset((match.team1_id, match.team2_id))
+        for match in qf_matches
+    } == {
+        frozenset((sorted_groups["A"][0].team_id, sorted_groups["B"][1].team_id)),
+        frozenset((sorted_groups["B"][0].team_id, sorted_groups["A"][1].team_id)),
+        frozenset((sorted_groups["C"][0].team_id, sorted_groups["D"][1].team_id)),
+        frozenset((sorted_groups["D"][0].team_id, sorted_groups["C"][1].team_id)),
+    }
 
     # Play all quarter-finals
     for m in qf_matches:

@@ -264,7 +264,7 @@ class TournamentParticipant(Base):
     tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False)
     team_id       = Column(Integer, ForeignKey("teams.id"), nullable=False)
     seed          = Column(Integer, nullable=False)
-    group_name    = Column(String(10), nullable=True)  # "A" or "B"
+    group_name    = Column(String(10), nullable=True)  # "A", "B", "C", or "D"
     wins          = Column(Integer, default=0)
     losses        = Column(Integer, default=0)
     rounds_won    = Column(Integer, default=0)
@@ -282,7 +282,7 @@ class Match(Base):
     id            = Column(Integer, primary_key=True, index=True)
     tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=True)
     stage         = Column(String(30), default="group_stage")  # group_stage, semi_final, grand_final
-    group_name    = Column(String(10), nullable=True)          # "A", "B", or None
+    group_name    = Column(String(10), nullable=True)          # "A"-"D" for group-stage matches
     round_name    = Column(String(50), nullable=True)          # e.g. "Group A - Round 1", "Semi-Final 1"
     team1_id      = Column(Integer, ForeignKey("teams.id"), nullable=False)
     team2_id      = Column(Integer, ForeignKey("teams.id"), nullable=False)
@@ -351,4 +351,3 @@ class CalendarState(Base):
 
     manager           = relationship("Manager")
     active_tournament = relationship("Tournament", foreign_keys=[active_tournament_id])
-

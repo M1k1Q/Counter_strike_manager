@@ -120,11 +120,8 @@ class TournamentService:
 
     def initialize_tournament(self, tournament_id: int) -> models.Tournament:
         """
-        Seed teams and generate group stage matches for a 16-team tournament.
-        Uses snake seeding:
-          Group A: Seeds 1, 4, 5, 8, 9, 12, 13, 16
-          Group B: Seeds 2, 3, 6, 7, 10, 11, 14, 15
-        Generates 7 rounds of round-robin matches within each group (28 matches per group).
+        Seed 16 teams into four groups of four and generate round-robin matches.
+        Each group's top two teams advance to the quarter-finals.
         """
         tournament = self.db.query(models.Tournament).filter(models.Tournament.id == tournament_id).first()
         if not tournament:
@@ -163,16 +160,13 @@ class TournamentService:
         # Sort invited teams by ranking to assign Seeds 1..16
         invited_teams.sort(key=lambda t: t.ranking if t.ranking else 999)
 
-        # Snake seeding into Group A and Group B
-        # Seed indices (0-indexed):
-        # Group A: seeds 0, 3, 4, 7, 8, 11, 12, 15 (Seeds 1, 4, 5, 8, 9, 12, 13, 16)
-        # Group B: seeds 1, 2, 5, 6, 9, 10, 13, 14 (Seeds 2, 3, 6, 7, 10, 11, 14, 15)
-        group_a_indices = {0, 3, 4, 7, 8, 11, 12, 15}
+        # Snake seed the four groups so the strongest seeds are distributed evenly.
+        group_names = ["A", "B", "C", "D"]
+        group_by_seed = ["A", "B", "C", "D", "D", "C", "B", "A"]
 
         participants = []
         for seed_idx, team in enumerate(invited_teams, 1):
-            zero_idx = seed_idx - 1
-            grp = "A" if zero_idx in group_a_indices else "B"
+            grp = group_by_seed[(seed_idx - 1) % len(group_by_seed)]
 
             part = models.TournamentParticipant(
                 tournament_id=tournament.id,
@@ -191,19 +185,14 @@ class TournamentService:
 
         self.db.flush()
 
-        # Generate Group Stage Matches (Round-Robin within each group of 8 teams)
-        # Berger tables for 8 teams (7 rounds x 4 matches = 28 matches per group)
+        # Berger tables for four teams (3 rounds x 2 matches = 6 matches per group).
         round_pairings = [
-            [(0, 7), (1, 6), (2, 5), (3, 4)],  # Round 1
-            [(7, 4), (5, 3), (6, 2), (0, 1)],  # Round 2
-            [(1, 7), (2, 0), (3, 6), (4, 5)],  # Round 3
-            [(7, 5), (6, 4), (0, 3), (1, 2)],  # Round 4
-            [(2, 7), (3, 1), (4, 0), (5, 6)],  # Round 5
-            [(7, 6), (0, 5), (1, 4), (2, 3)],  # Round 6
-            [(3, 7), (4, 2), (5, 1), (6, 0)],  # Round 7
+            [(0, 3), (1, 2)],  # Round 1
+            [(3, 2), (0, 1)],  # Round 2
+            [(1, 3), (2, 0)],  # Round 3
         ]
 
-        for grp_name in ["A", "B"]:
+        for grp_name in group_names:
             grp_teams = [p.team_id for p in participants if p.group_name == grp_name]
             for round_num, pairings in enumerate(round_pairings, 1):
                 for idx1, idx2 in pairings:
@@ -304,7 +293,7 @@ class TournamentService:
     def check_and_advance_stage(self, tournament: models.Tournament) -> None:
         """
         Check if current tournament stage is complete and advance to next:
-        1. Group Stage (56 matches) -> Create Quarter-Finals (4 matches, Bo3)
+        1. Group Stage (24 matches) -> Create Quarter-Finals (4 matches, Bo3)
         2. Quarter-Finals (4 matches) -> Create Semi-Finals (2 matches, Bo3)
         3. Semi-Finals (2 matches) -> Create Grand Final (1 match, Bo5)
         4. Grand Final (1 match) -> Conclude tournament & assign MVP/EVP
@@ -345,78 +334,54 @@ class TournamentService:
                 self.conclude_tournament(tournament, gf_matches[0])
 
     def create_quarterfinals(self, tournament: models.Tournament) -> None:
-        """Calculate group standings and pair Group A top 4 with Group B top 4."""
+        """Advance each group's top two and pair adjacent groups in quarter-finals."""
         participants = tournament.participants
-
-        group_a = [p for p in participants if p.group_name == "A"]
-        group_b = [p for p in participants if p.group_name == "B"]
 
         # Sort by: wins DESC, round differential DESC, seed ASC
         def sort_group(p: models.TournamentParticipant):
             round_diff = p.rounds_won - p.rounds_lost
             return (p.wins, round_diff, -p.seed)
 
-        sorted_a = sorted(group_a, key=sort_group, reverse=True)
-        sorted_b = sorted(group_b, key=sort_group, reverse=True)
-
-        if len(sorted_a) < 4 or len(sorted_b) < 4:
+        groups = {
+            group_name: sorted(
+                (p for p in participants if p.group_name == group_name),
+                key=sort_group,
+                reverse=True,
+            )
+            for group_name in ["A", "B", "C", "D"]
+        }
+        if any(len(group) < 4 for group in groups.values()):
             return
 
-        # Mark bottom 4 of each group as eliminated in Group Stage
-        for p in sorted_a[4:] + sorted_b[4:]:
-            p.eliminated = True
-            p.placement = "Group Stage"
+        for group in groups.values():
+            for participant in group[:2]:
+                participant.placement = "Quarterfinalist"
+            for participant in group[2:]:
+                participant.eliminated = True
+                participant.placement = "Group Stage"
 
-        # Top 4 of each group reach Quarter-Finals
-        for p in sorted_a[:4] + sorted_b[:4]:
-            p.placement = "Quarterfinalist"
-
-        a1, a2, a3, a4 = sorted_a[0], sorted_a[1], sorted_a[2], sorted_a[3]
-        b1, b2, b3, b4 = sorted_b[0], sorted_b[1], sorted_b[2], sorted_b[3]
-
-        # Standard IEM / Major Playoffs Bracket:
-        # QF1: A1 vs B4
-        # QF2: B2 vs A3
-        # QF3: B1 vs A4
-        # QF4: A2 vs B3
-        qf1 = models.Match(
-            tournament_id=tournament.id,
-            stage=MatchStage.QUARTER_FINAL.value,
-            round_name="Quarter-Final 1 (A1 vs B4)",
-            team1_id=a1.team_id,
-            team2_id=b4.team_id,
-            format="Bo3",
-            status=MatchStatus.SCHEDULED.value,
-        )
-        qf2 = models.Match(
-            tournament_id=tournament.id,
-            stage=MatchStage.QUARTER_FINAL.value,
-            round_name="Quarter-Final 2 (B2 vs A3)",
-            team1_id=b2.team_id,
-            team2_id=a3.team_id,
-            format="Bo3",
-            status=MatchStatus.SCHEDULED.value,
-        )
-        qf3 = models.Match(
-            tournament_id=tournament.id,
-            stage=MatchStage.QUARTER_FINAL.value,
-            round_name="Quarter-Final 3 (B1 vs A4)",
-            team1_id=b1.team_id,
-            team2_id=a4.team_id,
-            format="Bo3",
-            status=MatchStatus.SCHEDULED.value,
-        )
-        qf4 = models.Match(
-            tournament_id=tournament.id,
-            stage=MatchStage.QUARTER_FINAL.value,
-            round_name="Quarter-Final 4 (A2 vs B3)",
-            team1_id=a2.team_id,
-            team2_id=b3.team_id,
-            format="Bo3",
-            status=MatchStatus.SCHEDULED.value,
-        )
-
-        self.db.add_all([qf1, qf2, qf3, qf4])
+        pairings = [
+            ("A", 0, "B", 1),
+            ("B", 0, "A", 1),
+            ("C", 0, "D", 1),
+            ("D", 0, "C", 1),
+        ]
+        quarterfinals = [
+            models.Match(
+                tournament_id=tournament.id,
+                stage=MatchStage.QUARTER_FINAL.value,
+                round_name=(
+                    f"Quarter-Final {idx} "
+                    f"({group1}{place1 + 1} vs {group2}{place2 + 1})"
+                ),
+                team1_id=groups[group1][place1].team_id,
+                team2_id=groups[group2][place2].team_id,
+                format="Bo3",
+                status=MatchStatus.SCHEDULED.value,
+            )
+            for idx, (group1, place1, group2, place2) in enumerate(pairings, 1)
+        ]
+        self.db.add_all(quarterfinals)
         self.db.commit()
 
     def create_semifinals(self, tournament: models.Tournament, qf_matches: List[models.Match]) -> None:

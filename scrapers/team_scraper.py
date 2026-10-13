@@ -1,4 +1,5 @@
 import csv
+import os
 import time
 import random
 import re
@@ -9,8 +10,13 @@ from selenium_stealth import stealth
 
 # Base URL configurations
 BASE_URL = "https://www.hltv.org"
+PLAYER_STATS_CSV = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "app",
+    "hltv_team_player_stats_2026.csv",
+)
 # Target the top teams list instead of the player leaderboard
-TEAMS_LIST_URL = "https://www.hltv.org/stats/teams?csVersion=CS2&startDate=2026-04-11&endDate=2026-08-11&rankingFilter=Top20"
+TEAMS_LIST_URL = "https://www.hltv.org/stats/teams?startDate=2026-06-01&endDate=2026-12-31&matchType=Lan&rankingFilter=Top75"
 
 def init_stealth_driver():
     """Initializes a standard Selenium Chrome instance hardened against bot detection."""
@@ -232,13 +238,13 @@ def main():
             extra_fields = sorted(list(fieldnames - set(ordered_fields)))
             final_fields = ordered_fields + extra_fields
 
-            with open('hltv_team_player_stats_2026.csv', mode='w', newline='', encoding='utf-8') as file:
+            with open(PLAYER_STATS_CSV, mode='w', newline='', encoding='utf-8') as file:
                 writer = csv.DictWriter(file, fieldnames=final_fields)
                 writer.writeheader()
                 for row in complete_dataset:
                     writer.writerow(row)
                     
-            print("\nSuccess! Final team-focused roster dataset cleanly saved to 'hltv_team_player_stats_2026.csv'")
+            print(f"\nSuccess! Final team-focused roster dataset saved to '{PLAYER_STATS_CSV}'")
 
     finally:
         print("Tearing down Selenium Chrome session.")

@@ -10,6 +10,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
   const [calendarData, setCalendarData] = useState(null)
   const [rankings, setRankings] = useState([])
   const [activeSubTab, setActiveSubTab] = useState('groups') // 'groups', 'playoffs', 'seeds', 'rankings', 'stats'
+  const [activeGroup, setActiveGroup] = useState('A')
   const [loading, setLoading] = useState(true)
   const [advancing, setAdvancing] = useState(false)
   const [simulatingMatchId, setSimulatingMatchId] = useState(null)
@@ -149,16 +150,21 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
   const semiFinalMatches = activeTournament?.matches?.filter((m) => m.stage === 'semi_final') || []
   const grandFinalMatches = activeTournament?.matches?.filter((m) => m.stage === 'grand_final') || []
 
-  const groupAParticipants = activeTournament?.participants?.filter((p) => p.group_name === 'A') || []
-  const groupBParticipants = activeTournament?.participants?.filter((p) => p.group_name === 'B') || []
-
-  // Sort groups by wins DESC, round diff DESC
+  const groupNames = ['A', 'B', 'C', 'D']
   const sortStandings = (a, b) => {
     if (b.wins !== a.wins) return b.wins - a.wins
-    return b.round_diff - a.round_diff
+    if (b.round_diff !== a.round_diff) return b.round_diff - a.round_diff
+    return a.seed - b.seed
   }
-  const sortedGroupA = [...groupAParticipants].sort(sortStandings)
-  const sortedGroupB = [...groupBParticipants].sort(sortStandings)
+  const groupStandings = Object.fromEntries(
+    groupNames.map((groupName) => [
+      groupName,
+      (activeTournament?.participants || [])
+        .filter((participant) => participant.group_name === groupName)
+        .sort(sortStandings),
+    ])
+  )
+  const activeGroupMatches = groupMatches.filter((match) => match.group_name === activeGroup)
 
   return (
     <div className="tournament-calendar-container">
@@ -327,71 +333,25 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
           {/* ── Subtab: Group Stage ── */}
           {activeSubTab === 'groups' && (
             <div className="groups-view-wrapper">
-              <div className="groups-container">
-                {/* Group A */}
-                <div className="group-card">
-                  <div className="group-header">
-                    <h3>Group A</h3>
-                    <span className="qualifying-badge">Top 4 to Quarters</span>
-                  </div>
-                  <table className="standings-table">
-                    <thead>
-                      <tr>
-                        <th>Pos</th>
-                        <th>Team</th>
-                        <th>W-L</th>
-                        <th>Rounds</th>
-                        <th>Diff</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedGroupA.map((part, idx) => {
-                        const isQualifying = idx < 4
-                        const isUser = userTeamId && part.team_id === userTeamId
-                        return (
-                          <tr
-                            key={part.id}
-                            className={`${isQualifying ? 'qualified' : ''} ${
-                              isUser ? 'user-team-row' : ''
-                            }`}
-                          >
-                            <td>#{idx + 1}</td>
-                            <td>
-                              <span className="team-cell-name">
-                                {part.team_name}
-                                <span className="seed-num">(Seed {part.seed})</span>
-                              </span>
-                            </td>
-                            <td>
-                              {part.wins}-{part.losses}
-                            </td>
-                            <td>
-                              {part.rounds_won}:{part.rounds_lost}
-                            </td>
-                            <td
-                              style={{
-                                color:
-                                  part.round_diff > 0
-                                    ? '#34d399'
-                                    : part.round_diff < 0
-                                    ? '#f87171'
-                                    : 'inherit',
-                              }}
-                            >
-                              {part.round_diff > 0 ? `+${part.round_diff}` : part.round_diff}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="group-tabs" role="tablist" aria-label="Group stage groups">
+                {groupNames.map((groupName) => (
+                  <button
+                    key={groupName}
+                    className={`group-tab-btn ${activeGroup === groupName ? 'active' : ''}`}
+                    onClick={() => setActiveGroup(groupName)}
+                    role="tab"
+                    aria-selected={activeGroup === groupName}
+                  >
+                    Group {groupName}
+                  </button>
+                ))}
+              </div>
 
-                {/* Group B */}
+              <div className="groups-container">
                 <div className="group-card">
                   <div className="group-header">
-                    <h3>Group B</h3>
-                    <span className="qualifying-badge">Top 4 to Quarters</span>
+                    <h3>Group {activeGroup}</h3>
+                    <span className="qualifying-badge">Top 2 to Quarters</span>
                   </div>
                   <table className="standings-table">
                     <thead>
@@ -404,8 +364,8 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedGroupB.map((part, idx) => {
-                        const isQualifying = idx < 4
+                      {(groupStandings[activeGroup] || []).map((part, idx) => {
+                        const isQualifying = idx < 2
                         const isUser = userTeamId && part.team_id === userTeamId
                         return (
                           <tr
@@ -421,12 +381,8 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                                 <span className="seed-num">(Seed {part.seed})</span>
                               </span>
                             </td>
-                            <td>
-                              {part.wins}-{part.losses}
-                            </td>
-                            <td>
-                              {part.rounds_won}:{part.rounds_lost}
-                            </td>
+                            <td>{part.wins}-{part.losses}</td>
+                            <td>{part.rounds_won}:{part.rounds_lost}</td>
                             <td
                               style={{
                                 color:
@@ -450,7 +406,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
               {/* Group Matches Schedule */}
               <div className="matches-section" style={{ marginTop: '2rem' }}>
                 <div className="matches-section-header">
-                  <h4>Group Stage Matches (Round Robin)</h4>
+                  <h4>Group {activeGroup} Matches (Round Robin)</h4>
                   <button
                     className="btn-sim-ai"
                     onClick={() => handleSimulateAiMatches(activeTournament.id)}
@@ -461,7 +417,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                 </div>
 
                 <div className="match-list-grid">
-                  {groupMatches.map((m) => {
+                  {activeGroupMatches.map((m) => {
                     const isUserMatch =
                       userTeamId && (m.team1_id === userTeamId || m.team2_id === userTeamId)
                     const isCompleted = m.status === 'completed'

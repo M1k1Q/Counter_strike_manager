@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from app.database import SessionLocal, engine, Base
 from app import models
 from app.classifier import load_and_classify
-from app.rating import calculate_rating
+from app.rating import calculate_rating, _team_rank_map
 
 
 
@@ -67,11 +67,17 @@ def seed_database():
             if str(team_name) not in unique_teams:
                 unique_teams.append(str(team_name))
 
-        for rank, team_name in enumerate(unique_teams, 1):
+        team_rank_map = _team_rank_map(df)
+        max_team_rank = max(team_rank_map.values(), default=16)
+        for team_name in unique_teams:
+            team_rank = team_rank_map.get(team_name)
             db_team = models.Team(
                 name=team_name,
-                ranking=rank,
-                ranking_points=max(0, (len(unique_teams) + 1 - rank) * 100),
+                ranking=team_rank,
+                ranking_points=(
+                    max(0, (max_team_rank + 1 - team_rank) * 100)
+                    if team_rank is not None else 0
+                ),
             )
             db.add(db_team)
             db.flush()
@@ -81,7 +87,6 @@ def seed_database():
         # 2. Players  — map CSV columns directly, no approximations
         # ------------------------------------------------------------------
         print("Seeding players...")
-        team_rank_map = {t: i + 1 for i, t in enumerate(unique_teams)}
         team_active_roster_count: dict[int, int] = {}
         for _, row in df.iterrows():
             raw_team_name = row.get("Team")
@@ -124,7 +129,7 @@ def seed_database():
                 is_igl         = bool(row.get("is_igl", False)),
                 is_active_roster = is_active,
                 #calculating ingame rating based on stats out of 100, role and team ranking
-                Rating         = calculate_rating(row, team_rank)
+                Rating         = calculate_rating(row, team_rank, max_rank=max_team_rank)
             )
             db.add(db_player)
 

@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 from app.infrastructure.database import SessionLocal, engine, Base
 from app import models
 from app.classifier import load_and_classify
-from app.rating import calculate_rating
+from app.rating import calculate_rating, _team_rank_map
 
 
 def _f(row, col):
@@ -55,14 +55,23 @@ def seed_database():
             if str(team_name) not in unique_teams:
                 unique_teams.append(str(team_name))
 
-        for rank, team_name in enumerate(unique_teams, 1):
-            db_team = models.Team(name=team_name, ranking=rank)
+        team_rank_map = _team_rank_map(df)
+        max_team_rank = max(team_rank_map.values(), default=16)
+        for team_name in unique_teams:
+            team_rank = team_rank_map.get(team_name)
+            db_team = models.Team(
+                name=team_name,
+                ranking=team_rank,
+                ranking_points=(
+                    max(0, (max_team_rank + 1 - team_rank) * 100)
+                    if team_rank is not None else 0
+                ),
+            )
             db.add(db_team)
             db.flush()
             team_map[team_name] = db_team.id
 
         print("Seeding players...")
-        team_rank_map = {team: idx + 1 for idx, team in enumerate(unique_teams)}
         for _, row in df.iterrows():
             raw_team_name = row.get("Team")
             if pd.isna(raw_team_name) or str(raw_team_name).strip() == "":
@@ -92,7 +101,7 @@ def seed_database():
                 confidence=_f(row, "confidence") or 0.0,
                 igl_score=_f(row, "igl_score") or 0.0,
                 is_igl=bool(row.get("is_igl", False)),
-                Rating=calculate_rating(row, team_rank),
+                Rating=calculate_rating(row, team_rank, max_rank=max_team_rank),
             )
             db.add(db_player)
 

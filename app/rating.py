@@ -169,6 +169,25 @@ def calculate_rating(row: pd.Series | dict, team_rank: int | None = None, max_ra
     return _post_scale(raw)
 
 
+def _team_rank_map(df: pd.DataFrame) -> dict[str, int]:
+    """Use scraped world ranks when available, falling back to CSV team order."""
+    if "Team_Rank" in df.columns:
+        team_ranks: dict[str, int] = {}
+        for team, raw_rank in zip(df["Team"], df["Team_Rank"]):
+            if pd.isna(team) or str(team).strip() == "":
+                continue
+            rank = pd.to_numeric(raw_rank, errors="coerce")
+            if pd.notna(rank):
+                team_ranks.setdefault(str(team), int(rank))
+        return team_ranks
+
+    unique_teams = [
+        team for team in df["Team"].dropna().unique()
+        if str(team).strip() != ""
+    ]
+    return {str(team): rank for rank, team in enumerate(unique_teams, 1)}
+
+
 # ---------------------------------------------------------------------------
 # 5. Execution
 # ---------------------------------------------------------------------------
@@ -179,9 +198,8 @@ def main():
     print(f"Loading: {csv_path}\n")
     df = load_and_classify(csv_path)
 
-    unique_teams = list(df["Team"].dropna().unique())
-    team_rank: dict[str, int] = {t: i + 1 for i, t in enumerate(unique_teams)}
-    max_rank = max(team_rank.values()) if team_rank else 20
+    team_rank = _team_rank_map(df)
+    max_rank = max(team_rank.values(), default=20)
 
     ratings = []
     for _, row in df.iterrows():
@@ -191,7 +209,7 @@ def main():
 
     df["Rating"] = ratings
 
-    display_cols = ["Team", "Player", "role", "Rating", "igl_score",
+    display_cols = ["Team", "Team_Rank", "Player", "role", "Rating", "igl_score",
                     "Overall Rating", "Firepower", "Impact", "Opening",
                     "Entrying", "Clutching", "Trading", "Utility", "Sniping"]
     display_cols = [c for c in display_cols if c in df.columns]
@@ -211,8 +229,9 @@ def main():
     sorted_rostered = rostered_df.sort_values(by=["Team_Rank", "Rating"], ascending=[True, False])
     
     for team, group in sorted_rostered.groupby("Team", sort=False):
-        rank = team_rank[team]
-        print(f"\n[ Rank #{rank} ]  {team.upper()}")
+        rank = team_rank.get(team)
+        rank_label = f"#{rank}" if rank is not None else "unranked"
+        print(f"\n[ Rank {rank_label} ]  {team.upper()}")
         print("-" * 140)
         print(group[display_cols].to_string(index=False))
         print("-" * 140)
