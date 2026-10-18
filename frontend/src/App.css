@@ -18,10 +18,93 @@
   --text-muted: #556178;
   --accent: #f97316;
   --accent-glow: rgba(249, 115, 22, 0.25);
+  --accent-strong: #ea580c;
+  --event-glow-primary: rgba(249, 115, 22, 0.08);
+  --event-glow-secondary: rgba(59, 130, 246, 0.05);
+  --event-glow-tertiary: rgba(249, 115, 22, 0.04);
+  --event-surface: linear-gradient(120deg, rgba(26, 34, 53, 0.97), rgba(17, 24, 39, 0.97));
+  --event-border: rgba(255, 255, 255, 0.1);
   --green: #22c55e;
   --red: #ef4444;
   --yellow: #eab308;
   --radius: 12px;
+}
+
+:root[data-event-theme='iem'] {
+  --accent: #f2d34f;
+  --accent-glow: rgba(242, 211, 79, 0.3);
+  --accent-strong: #d6ae22;
+  --event-glow-primary: rgba(0, 0, 255, 0.48);
+  --event-glow-secondary: rgba(0, 0, 255, 0.26);
+  --event-glow-tertiary: rgba(242, 211, 79, 0.12);
+  --event-surface: linear-gradient(118deg, rgba(4, 9, 57, 0.97), rgba(0, 0, 110, 0.94) 52%, rgba(18, 22, 53, 0.98));
+  --event-border: rgba(0, 0, 255, 0.62);
+}
+
+:root[data-event-theme='esl-pro-league'] {
+  --accent: #d9c345;
+  --accent-glow: rgba(217, 195, 69, 0.18);
+  --accent-strong: #9a861e;
+  --event-glow-primary: rgba(28, 112, 53, 0.3);
+  --event-glow-secondary: rgba(225, 194, 50, 0.15);
+  --event-glow-tertiary: rgba(18, 54, 34, 0.22);
+  --event-surface: linear-gradient(118deg, rgba(10, 29, 23, 0.98), rgba(27, 49, 35, 0.96) 52%, rgba(23, 27, 35, 0.98));
+  --event-border: rgba(217, 195, 69, 0.3);
+}
+
+:root[data-event-theme='blast'] {
+  --accent: #f04b61;
+  --accent-glow: rgba(240, 75, 97, 0.3);
+  --accent-strong: #c92d49;
+  --event-glow-primary: rgba(204, 35, 73, 0.32);
+  --event-glow-secondary: rgba(39, 88, 207, 0.24);
+  --event-glow-tertiary: rgba(240, 75, 97, 0.12);
+  --event-surface: linear-gradient(118deg, rgba(48, 13, 31, 0.97), rgba(37, 28, 67, 0.96) 58%, rgba(18, 25, 43, 0.98));
+  --event-border: rgba(240, 75, 97, 0.34);
+}
+
+:root[data-event-theme='major'] {
+  --accent: #68b9ff;
+  --accent-glow: rgba(74, 166, 255, 0.3);
+  --accent-strong: #327ec2;
+  --event-glow-primary: rgba(42, 125, 226, 0.3);
+  --event-glow-secondary: rgba(87, 190, 255, 0.18);
+  --event-glow-tertiary: rgba(255, 198, 64, 0.1);
+  --event-surface: linear-gradient(118deg, rgba(9, 30, 68, 0.97), rgba(18, 55, 92, 0.96) 56%, rgba(18, 28, 48, 0.98));
+  --event-border: rgba(87, 190, 255, 0.32);
+}
+
+:root[data-event-theme='roobet'] {
+  --accent: #b68aff;
+  --accent-glow: rgba(158, 99, 255, 0.3);
+  --accent-strong: #7743c9;
+  --event-glow-primary: rgba(108, 55, 197, 0.34);
+  --event-glow-secondary: rgba(197, 74, 238, 0.18);
+  --event-glow-tertiary: rgba(77, 45, 159, 0.2);
+  --event-surface: linear-gradient(118deg, rgba(34, 17, 68, 0.97), rgba(57, 28, 94, 0.96) 55%, rgba(21, 24, 47, 0.98));
+  --event-border: rgba(182, 138, 255, 0.32);
+}
+
+:root[data-event-theme='thunderpick'] {
+  --accent: #39c9ee;
+  --accent-glow: rgba(57, 201, 238, 0.3);
+  --accent-strong: #1685a7;
+  --event-glow-primary: rgba(34, 177, 220, 0.3);
+  --event-glow-secondary: rgba(224, 183, 48, 0.16);
+  --event-glow-tertiary: rgba(34, 177, 220, 0.13);
+  --event-surface: linear-gradient(118deg, rgba(8, 39, 55, 0.97), rgba(18, 58, 75, 0.96) 55%, rgba(29, 31, 45, 0.98));
+  --event-border: rgba(57, 201, 238, 0.34);
+}
+
+:root[data-event-theme='rivals'] {
+  --accent: #f04b76;
+  --accent-glow: rgba(240, 75, 118, 0.3);
+  --accent-strong: #c32e65;
+  --event-glow-primary: rgba(215, 36, 94, 0.3);
+  --event-glow-secondary: rgba(105, 54, 212, 0.25);
+  --event-glow-tertiary: rgba(240, 75, 118, 0.13);
+  --event-surface: linear-gradient(118deg, rgba(52, 13, 45, 0.97), rgba(43, 27, 78, 0.96) 56%, rgba(20, 24, 46, 0.98));
+  --event-border: rgba(240, 75, 118, 0.34);
 }
 
 body {
@@ -37,10 +120,12 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(249, 115, 22, 0.08), transparent),
-    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(59, 130, 246, 0.05), transparent);
+    radial-gradient(ellipse 72% 48% at 8% 0%, var(--event-glow-primary), transparent 76%),
+    radial-gradient(ellipse 62% 56% at 94% 38%, var(--event-glow-secondary), transparent 78%),
+    radial-gradient(ellipse 55% 42% at 45% 108%, var(--event-glow-tertiary), transparent 76%);
   pointer-events: none;
   z-index: 0;
+  transition: background 700ms ease;
 }
 
 /* ── Layout ────────────────────────────────────── */
@@ -763,13 +848,23 @@ tbody tr:last-child td {
   font-size: 0.86rem;
 }
 
+.transfer-lock-notice {
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(245, 190, 55, 0.35);
+  border-radius: 10px;
+  background: rgba(245, 190, 55, 0.1);
+  color: #f5d47a;
+  font-size: 0.9rem;
+}
+
 /* ── Navbar ────────────────────────────────────── */
 .navbar {
   position: sticky;
   top: 0;
   left: 0;
   width: 100%;
-  padding: 1rem 1.5rem;
+  padding: 0.55rem 1.25rem;
   background: rgba(10, 14, 23, 0.7);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -786,10 +881,24 @@ tbody tr:last-child td {
   align-items: center;
 }
 
+.navbar .logo {
+  margin-bottom: 0;
+}
+
+.navbar .logo-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.navbar .logo-text {
+  font-size: 1.3rem;
+}
+
 .nav-links {
   display: flex;
   list-style: none;
-  gap: 2rem;
+  gap: 1.35rem;
   align-items: center;
 }
 
@@ -1746,6 +1855,141 @@ tbody tr:last-child td {
 .selected-role-tag {
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.negotiation-modal {
+  width: min(500px, 100%);
+  max-height: calc(100vh - 1.5rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.negotiation-modal .modal-header {
+  padding: 0.85rem 1.1rem;
+}
+
+.negotiation-modal .modal-header h2 {
+  font-size: 1.2rem;
+}
+
+.negotiation-modal .modal-subtitle {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.negotiation-modal .modal-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.negotiation-modal .modal-content {
+  padding: 1rem 1.1rem;
+}
+
+.negotiation-modal .modal-details-grid {
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.negotiation-modal .modal-details-grid div {
+  padding: 0.7rem 0.8rem;
+  border-radius: 11px;
+}
+
+.negotiation-modal .modal-details-grid span {
+  margin-bottom: 0.2rem;
+  font-size: 0.75rem;
+}
+
+.negotiation-modal .modal-details-grid strong {
+  font-size: 1rem;
+}
+
+.negotiation-modal .modal-stats-section {
+  gap: 0.55rem 0.8rem;
+  margin: 0.75rem 0;
+  padding: 0.8rem;
+  border-radius: 12px;
+}
+
+.negotiation-modal .offer-section {
+  gap: 0.55rem;
+  margin: 0.75rem 0;
+  padding: 0.9rem;
+  border-radius: 12px;
+}
+
+.negotiation-modal .offer-preset-btn {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.76rem;
+}
+
+.negotiation-modal .offer-input-row {
+  padding: 0.05rem 0.75rem;
+}
+
+.negotiation-modal .offer-input {
+  padding: 0.55rem 0;
+  font-size: 1rem;
+}
+
+.negotiation-modal .offer-meter-container {
+  gap: 0.3rem;
+}
+
+.negotiation-modal .offer-meter-track {
+  height: 5px;
+}
+
+.negotiation-modal .offer-meter-label {
+  flex-wrap: wrap;
+  gap: 0.25rem 0.4rem;
+  font-size: 0.75rem;
+}
+
+.negotiation-modal .offer-hint {
+  font-size: 0.74rem;
+}
+
+.negotiation-modal .modal-negotiation-details {
+  padding: 0.75rem;
+}
+
+.negotiation-modal .modal-actions {
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.negotiation-modal .modal-actions .btn-primary {
+  width: 100%;
+  min-height: 44px;
+}
+
+.negotiation-modal .modal-actions .btn-secondary {
+  min-width: 110px;
+  padding: 0.6rem 1rem;
+}
+
+.negotiation-modal .modal-status {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+}
+
+@media (max-width: 480px) {
+  .modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .negotiation-modal {
+    max-height: calc(100vh - 1rem);
+  }
+
+  .negotiation-modal .modal-header,
+  .negotiation-modal .modal-content {
+    padding-right: 0.85rem;
+    padding-left: 0.85rem;
+  }
 }
 
 /* ============================================

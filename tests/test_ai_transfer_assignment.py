@@ -49,7 +49,9 @@ def run_transfer_assignment_check():
         db.flush()
 
         before_budget = ai_team.budget
+        lost_player.team_id = human_team.id
         handle_ai_replacement(db, ai_team.id, lost_player.id)
+        db.commit()
         db.refresh(ai_team)
         db.refresh(better_free_agent)
 
@@ -57,7 +59,7 @@ def run_transfer_assignment_check():
             f"Expected replacement to be assigned to {ai_team.name}, got team_id={better_free_agent.team_id}"
         )
         assert ai_team.budget < before_budget, "AI team budget should decrease after signing a replacement"
-        assert lost_player.team_id == ai_team.id, "The player that was sold should keep its original team assignment"
+        assert lost_player.team_id == human_team.id, "The transferred player should remain with the manager's team"
 
         print("AI transfer assignment check passed")
         print(f"- Replacement assigned: {better_free_agent.player}")

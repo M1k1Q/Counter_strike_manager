@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PlayerStatSummary(BaseModel):
@@ -93,6 +93,7 @@ class TournamentDetailResponse(TournamentSummaryResponse):
     participants: List[TournamentParticipantResponse] = []
     matches: List[MatchResponse] = []
     is_manager_invited: bool = False
+    is_manager_participating: bool = False
     manager_invite_reason: str = ""
 
 
@@ -102,6 +103,7 @@ class CalendarStateResponse(BaseModel):
     current_year: int
     current_month: int
     active_tournament_id: Optional[int] = None
+    tournament_start_pending: bool = False
     active_tournament: Optional[TournamentDetailResponse] = None
     season_tournaments: List[TournamentSummaryResponse] = []
     manager_team_rank: Optional[int] = None
@@ -150,3 +152,35 @@ class TournamentStatsResponse(BaseModel):
     mvp: Optional[EventPlayerStat] = None
     evps: List[EventPlayerStat] = []
     player_stats: List[EventPlayerStat] = []
+
+
+class YearEndEventHonor(BaseModel):
+    event_name: str
+    month: int
+    award: str
+    event_rating: float
+    placement: Optional[str] = None
+
+
+class YearEndPlayerStat(BaseModel):
+    rank: int
+    player_id: int
+    player_name: str
+    team_name: str
+    role: Optional[str] = None
+    maps_played: int
+    kills: int
+    deaths: int
+    assists: int
+    kd_diff: int
+    kd_ratio: float
+    adr: float
+    rating: float
+    mvp_count: int
+    evp_count: int
+    honors: List[YearEndEventHonor] = Field(default_factory=list)
+
+
+class YearEndTop20Response(BaseModel):
+    year: int
+    players: List[YearEndPlayerStat] = Field(default_factory=list)

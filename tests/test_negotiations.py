@@ -42,12 +42,30 @@ class NegotiationModelTests(unittest.TestCase):
             source_team=source_team,
             target_team=target_team,
             manager=manager,
-            offer_amount=int(base_price * 2.8), # 2.8x offer above required 2.5x threshold
+            offer_amount=int(base_price * 4.2),
         )
 
         self.assertFalse(negotiation.is_untouchable)
         chance = negotiation.calculate_success()
         self.assertGreater(chance, 0.0)
+
+    def test_elite_star_is_protected_even_on_a_low_ranked_team(self):
+        source_team = models.Team(name="Luminosity", ranking=24)
+        target_team = models.Team(name="Custom Esports", ranking=99)
+        player = models.Player(player="donk", Rating=94, overall_rating=1.38)
+        manager = models.Manager(name="Boss", budget=10000000)
+        base_price = player.price
+
+        negotiation = models.Negotiation(
+            player=player,
+            source_team=source_team,
+            target_team=target_team,
+            manager=manager,
+            offer_amount=int(base_price * 3.9),
+        )
+
+        self.assertTrue(negotiation.is_untouchable)
+        self.assertEqual(negotiation.calculate_success(), 0.0)
 
     def test_mid_tier_team_acceptable_offer(self):
         source_team = models.Team(name="3DMAX", ranking=16)

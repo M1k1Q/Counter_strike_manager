@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import Boolean, false, inspect, text
 
 from app.api.routes.players import router as players_router
 from app.api.routes.teams import router as teams_router
@@ -9,12 +10,43 @@ from app.api.routes.roster import router as roster_router
 from app.api.routes.ai_buyouts import router as ai_buyouts_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.tournaments import router as tournaments_router
-from app.infrastructure.database import engine, Base
+from app.infrastructure.database import SessionLocal, engine, Base
+from app.services.player_rating_service import migrate_player_ratings
 from app import models
+from contextlib import asynccontextmanager
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+
+def _ensure_calendar_tournament_start_column():
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("calendar_states")
+    }
+    if "tournament_start_pending" in columns:
+        return
+
+    boolean_type = str(Boolean().compile(dialect=engine.dialect))
+    false_value = str(false().compile(dialect=engine.dialect))
+    with engine.begin() as connection:
+        connection.execute(text(
+            "ALTER TABLE calendar_states "
+            f"ADD COLUMN tournament_start_pending {boolean_type} "
+            f"NOT NULL DEFAULT {false_value}"
+        ))
+
+
+_ensure_calendar_tournament_start_column()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    with SessionLocal() as db:
+        migrate_player_ratings(db)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 # Allow React dev server (Vite on port 5173) to call the API
 app.add_middleware(

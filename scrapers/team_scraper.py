@@ -3,9 +3,11 @@ import os
 import time
 import random
 import re
+import tempfile
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium_stealth import stealth
 
 # Base URL configurations
@@ -107,61 +109,74 @@ def parse_teams_list(driver):
 def parse_team_lineup(driver, team_url):
     """Navigates to a team's overview page and extracts all players in the active lineup grid."""
     soup = get_soup_via_selenium(driver, team_url, is_verification_page=False)
-    players = []
     if not soup:
-        return players
+        return []
 
-    # HLTV profiles lineup cards usually reside inside elements with player links
-    # We find links pointing to player stats inside the lineup display structure
-    player_links = soup.select('div.grid a[href*="/stats/players/"]') or soup.select('a[href*="/stats/players/"]')
-    
-    seen_links = set()
-    for link in player_links:
-        href = link.get('href')
-        # Skip duplicates (e.g. image link + text link) and clean up the URL path
-        if href and href not in seen_links:
-            seen_links.add(href)
-            
-            # Extract player name text safely from container child nodes if present
-            player_name = link.text.strip()
+    def extract_players(page_soup):
+        players = []
+        seen_links = set()
+        for link in page_soup.select(
+            'div.grid a[href*="/player/"], div.grid a[href*="/stats/players/"]'
+        ):
+            href = link.get("href", "")
+            match = re.match(
+                r"^/(?:stats/players|player)/(\d+)/([^/?#]+)",
+                href,
+            )
+            if not match:
+                continue
+
+            player_id, player_slug = match.groups()
+            if player_id in seen_links:
+                continue
+            seen_links.add(player_id)
+
+            if href.startswith("/player/"):
+                href = href.replace("/player/", "/stats/players/", 1)
+
+            player_name = link.get_text(" ", strip=True)
+            if player_name.casefold() in {"bench", "coach", "substitute"}:
+                player_name = ""
             if not player_name:
-                # Fallback to finding text inside or reading the name via URL tokens
-                name_div = link.find_next('div')
-                player_name = name_div.text.strip() if name_div else "Unknown"
-            
-            # Clean text if it grabbed messy layout strings
-            player_name = player_name.split('\n')[0].strip()
-            
+                player_name = player_slug.replace("-", " ")
             players.append({
-                'Player': player_name,
-                'Profile Link': BASE_URL + href
+                "Player": player_name.split("\n")[0].strip(),
+                "Profile Link": BASE_URL + href,
             })
-            
-            # We explicitly want the active 5 core members showing on the grid dashboard
             if len(players) == 5:
                 break
-                
-    return players
+        return players
 
-def parse_individual_profile(driver, player_url):
-    """Navigates to individual player profile and parses the metric grids."""
-    soup = get_soup_via_selenium(driver, player_url, is_verification_page=False)
-    profile_metrics = {}
-    if not soup:
-        return profile_metrics
-    
+    profile_buttons = driver.find_elements(
+        By.XPATH,
+        "//button[normalize-space(.)='Team profile']"
+        " | //a[normalize-space(.)='Team profile']"
+        " | //*[@role='button'][normalize-space(.)='Team profile']",
+    )
+    if profile_buttons:
+        profile_buttons[0].click()
+        time.sleep(0.5)
+        profile_soup = BeautifulSoup(driver.page_source, "html.parser")
+        profile_players = extract_players(profile_soup)
+        if profile_players:
+            return profile_players
+
+    return extract_players(soup)
+
+def _extract_metrics_from_soup(soup):
+    metrics = {}
     # 1. Extract Overall Rating 3.0 / Rating
     rating_tag = soup.select_one('div.player-summary-stat-box-rating-data-text')
     if rating_tag:
-        profile_metrics['Rating'] = rating_tag.get_text(strip=True)
+        metrics['Rating'] = rating_tag.get_text(strip=True)
 
     # 2. Extract Side Ratings (T Rating & CT Rating)
     ratings = soup.find_all("div", class_="player-summary-stat-box-side-rating-background-wrapper")
     if len(ratings) >= 2:
         t_raw  = ratings[0].get_text(strip=True)
         ct_raw = ratings[1].get_text(strip=True)
-        profile_metrics["T Rating"]  = re.match(r"[\d.]+", t_raw).group()  if re.match(r"[\d.]+", t_raw)  else t_raw
-        profile_metrics["CT Rating"] = re.match(r"[\d.]+", ct_raw).group() if re.match(r"[\d.]+", ct_raw) else ct_raw
+        metrics["T Rating"]  = re.match(r"[\d.]+", t_raw).group()  if re.match(r"[\d.]+", t_raw)  else t_raw
+        metrics["CT Rating"] = re.match(r"[\d.]+", ct_raw).group() if re.match(r"[\d.]+", ct_raw) else ct_raw
     
     # 3. Extract Role / Attribute Section Scores
     sections = soup.find_all("div", class_="role-stats-section")
@@ -173,7 +188,7 @@ def parse_individual_profile(driver, player_url):
             title_texts = [t.strip() for t in title_div.find_all(string=True, recursive=False) if t.strip()]
             title = title_texts[0] if title_texts else ""
             score = score_div.contents[0].get_text(strip=True)
-            profile_metrics[title] = score
+            metrics[title] = score
 
     # 4. Extract Impact Metric
     impact_tag = (
@@ -182,12 +197,115 @@ def parse_individual_profile(driver, player_url):
         soup.select_one('span.strong')
     )
     if impact_tag:
-        profile_metrics['Impact'] = impact_tag.get_text(strip=True)
+        metrics['Impact'] = impact_tag.get_text(strip=True)
+
+    # 5. Extract Age
+    age_tag = soup.select_one('div.player-summary-stat-box-left-player-age')
+    if age_tag:
+        age_text = age_tag.get_text(strip=True)
+        age_match = re.search(r'\d+', age_text)
+        if age_match:
+            metrics['Age'] = age_match.group()
+
+    return metrics
+
+
+def parse_individual_profile(driver, player_url):
+    """Navigates to individual player profile and parses the metric grids.
+    If filtered stats are missing, falls back to full-year 2026 stats.
+    """
+    soup = get_soup_via_selenium(driver, player_url, is_verification_page=False)
+    profile_metrics = {}
+    if soup:
+        profile_metrics = _extract_metrics_from_soup(soup)
+
+    # Fallback: if 'Rating' or role attributes are missing, broaden to full-year 2026 stats
+    if not profile_metrics.get('Rating'):
+        base_player_url = player_url.split('?')[0]
+        fallback_url = f"{base_player_url}?startDate=2026-01-01&endDate=2026-12-31"
+        print(f"      [Fallback] No stats under filter, retrying full-year 2026: {fallback_url}")
+        time.sleep(random.uniform(1.0, 2.0))
+        fallback_soup = get_soup_via_selenium(driver, fallback_url, is_verification_page=False)
+        if fallback_soup:
+            fallback_metrics = _extract_metrics_from_soup(fallback_soup)
+            if fallback_metrics:
+                # Keep age if already found, else take fallback
+                if 'Age' in profile_metrics and 'Age' not in fallback_metrics:
+                    fallback_metrics['Age'] = profile_metrics['Age']
+                profile_metrics = fallback_metrics
 
     return profile_metrics
+
+
+def load_existing_player_data(csv_path):
+    if not os.path.isfile(csv_path):
+        return [], [], set()
+
+    with open(csv_path, newline="", encoding="utf-8") as source:
+        reader = csv.DictReader(source)
+        if not reader.fieldnames or "Team" not in reader.fieldnames:
+            raise ValueError(f"CSV must contain a Team column: {csv_path}")
+        fieldnames = list(reader.fieldnames)
+        rows = list(reader)
+
+    teams = {
+        (row.get("Team") or "").strip().casefold()
+        for row in rows
+        if (row.get("Team") or "").strip()
+    }
+    return fieldnames, rows, teams
+
+
+def get_unprocessed_teams(teams, existing_teams):
+    return [
+        team
+        for team in teams
+        if team["Team"].strip().casefold() not in existing_teams
+    ]
+
+
+def save_player_data(csv_path, fieldnames, rows):
+    ordered_fields = ["Team", "Player", "Profile Link", "Team Link"]
+    output_fields = list(fieldnames)
+    if not output_fields:
+        output_fields = ordered_fields
+    else:
+        output_fields.extend(
+            field for field in ordered_fields if field not in output_fields
+        )
+
+    extra_fields = sorted({
+        field
+        for row in rows
+        for field in row
+        if field not in output_fields
+    })
+    output_fields.extend(extra_fields)
+
+    csv_directory = os.path.dirname(os.path.abspath(csv_path))
+    with tempfile.NamedTemporaryFile(
+        "w",
+        newline="",
+        encoding="utf-8",
+        dir=csv_directory,
+        delete=False,
+    ) as output:
+        temp_path = output.name
+        writer = csv.DictWriter(output, fieldnames=output_fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    try:
+        os.replace(temp_path, csv_path)
+    except OSError:
+        os.unlink(temp_path)
+        raise
     
 def main():
     print("Starting the team-by-team player scraper...")
+    existing_fieldnames, existing_rows, existing_teams = load_existing_player_data(
+        PLAYER_STATS_CSV
+    )
     print("Initializing the browser... This may take a moment.")
     driver = init_stealth_driver()
     try:
@@ -198,16 +316,23 @@ def main():
             return
 
         print(f"\nDiscovered {len(top_teams)} teams. Processing rosters layout context...")
-        complete_dataset = []
+        teams_to_scrape = get_unprocessed_teams(top_teams, existing_teams)
+        skipped_count = len(top_teams) - len(teams_to_scrape)
+        if skipped_count:
+            print(f"Skipping {skipped_count} teams already present in the CSV.")
+        if not teams_to_scrape:
+            print("All listed teams are already present in the CSV.")
+            return
 
         # Step 2: Loop over discovered Teams to extract Lineups
-        for t_idx, team in enumerate(top_teams):
-            print(f"\n[{t_idx+1}/{len(top_teams)}] Extracting lineup for team: {team['Team']}")
+        for t_idx, team in enumerate(teams_to_scrape, 1):
+            print(f"\n[{t_idx}/{len(teams_to_scrape)}] Extracting lineup for team: {team['Team']}")
             
             lineup_players = parse_team_lineup(driver, team['Team Link'])
             print(f"-> Found {len(lineup_players)} players in active lineup.")
             
             time.sleep(random.uniform(1.5, 3.0))
+            team_rows = []
             
             # Step 3: Loop over each player inside the lineup for individual deep stats
             for p_idx, player in enumerate(lineup_players):
@@ -223,28 +348,21 @@ def main():
                     'Profile Link': player['Profile Link'],
                     **advanced_metrics
                 }
-                complete_dataset.append(merged_data)
+                team_rows.append(merged_data)
                 
                 # Gentle delay to safeguard runtime sessions from rate limits
                 time.sleep(random.uniform(1.5, 3.0))
 
-        # Step 4: Output structure generation
-        if complete_dataset:
-            fieldnames = set()
-            for item in complete_dataset:
-                fieldnames.update(item.keys())
-            
-            ordered_fields = ['Team', 'Player', 'Profile Link', 'Team Link']
-            extra_fields = sorted(list(fieldnames - set(ordered_fields)))
-            final_fields = ordered_fields + extra_fields
+            if team_rows:
+                existing_rows.extend(team_rows)
+                save_player_data(PLAYER_STATS_CSV, existing_fieldnames, existing_rows)
+                existing_teams.add(team["Team"].strip().casefold())
+                print(
+                    f"Saved {len(team_rows)} players for {team['Team']} to "
+                    f"'{PLAYER_STATS_CSV}'."
+                )
 
-            with open(PLAYER_STATS_CSV, mode='w', newline='', encoding='utf-8') as file:
-                writer = csv.DictWriter(file, fieldnames=final_fields)
-                writer.writeheader()
-                for row in complete_dataset:
-                    writer.writerow(row)
-                    
-            print(f"\nSuccess! Final team-focused roster dataset saved to '{PLAYER_STATS_CSV}'")
+        print(f"\nUpdated team-focused roster dataset saved to '{PLAYER_STATS_CSV}'.")
 
     finally:
         print("Tearing down Selenium Chrome session.")

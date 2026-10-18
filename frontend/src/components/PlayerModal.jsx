@@ -10,6 +10,7 @@ function PlayerModal({
   isSubmitting,
   getTeamName,
   negotiation,
+  transferLockName,
 }) {
   const [offerAmount, setOfferAmount] = useState('')
   const [offerError, setOfferError] = useState(null)
@@ -86,7 +87,7 @@ function PlayerModal({
     onAction(player, isNegotiationMode ? parsedOffer : null)
   }
 
-  const actionDisabled = isSubmitting || (hasNegotiation && ['accepted', 'rejected'].includes(negotiation.status))
+  const actionDisabled = Boolean(transferLockName) || isSubmitting || (hasNegotiation && ['accepted', 'rejected'].includes(negotiation.status))
 
   const negotiationDetails = isPendingNegotiation ? (
     <div className="modal-negotiation-details">
@@ -99,7 +100,7 @@ function PlayerModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal-card ${isNegotiationMode ? 'negotiation-modal' : ''}`} onClick={(e) => e.stopPropagation()}>
         <header className="modal-header">
           <div>
             <h2>{player.player}</h2>
@@ -118,6 +119,11 @@ function PlayerModal({
         </header>
 
         <div className="modal-content">
+          {transferLockName && (
+            <p className="transfer-lock-notice">
+              Transfers are locked while your team is participating in {transferLockName}.
+            </p>
+          )}
           <div className="modal-details-grid">
             <div>
               <span>Overall</span>

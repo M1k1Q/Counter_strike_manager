@@ -16,6 +16,7 @@ from app.api.schemas.team_schema import (
 )
 from app.database import get_db
 from app.services.roster_service import RosterService
+from app.services.transfer_service import ensure_transfers_unlocked, reconcile_ai_rosters
 
 router = APIRouter()
 
@@ -34,6 +35,12 @@ def get_teams(db: Session = Depends(get_db)):
     return db.query(models.Team).all()
 
 
+@router.post("/teams/ai-rosters/reconcile")
+def repair_ai_rosters(db: Session = Depends(get_db)):
+    repaired = reconcile_ai_rosters(db)
+    return {"players_signed": repaired}
+
+
 @router.post("/teams/{team_id}/add_player/{player_id}")
 def add_player_to_team(team_id: int, player_id: int, db: Session = Depends(get_db)):
     player = db.query(models.Player).filter(models.Player.id == player_id).first()
@@ -43,6 +50,7 @@ def add_player_to_team(team_id: int, player_id: int, db: Session = Depends(get_d
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
+    ensure_transfers_unlocked(db, team.id, player.team_id)
     player.team_id = team_id
     db.commit()
     return {"message": f"Player {player.player} assigned to team {team.name}"}
@@ -54,6 +62,7 @@ def remove_player_from_team(team_id: int, player_id: int, db: Session = Depends(
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
 
+    ensure_transfers_unlocked(db, player.team_id)
     player.team_id = None
     db.commit()
     return {"message": f"Player {player.player} removed from team"}

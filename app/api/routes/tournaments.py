@@ -16,6 +16,7 @@ from app.api.schemas.tournament_schema import (
     TournamentParticipantResponse,
     TeamRankingResponse,
     TournamentStatsResponse,
+    YearEndTop20Response,
 )
 
 router = APIRouter(prefix="/tournaments", tags=["tournaments"])
@@ -129,6 +130,9 @@ def _build_tournament_detail(t: models.Tournament, db: Session) -> TournamentDet
         participants=part_list,
         matches=match_list,
         is_manager_invited=invite_check["invited"],
+        is_manager_participating=bool(
+            user_team and any(participant.team_id == user_team.id for participant in t.participants)
+        ),
         manager_invite_reason=invite_check["reason"],
     )
 
@@ -142,7 +146,7 @@ def get_calendar(db: Session = Depends(get_db)):
     season_tournaments = (
         db.query(models.Tournament)
         .filter(models.Tournament.year == state.current_year)
-        .order_by(models.Tournament.month.asc())
+        .order_by(models.Tournament.month.asc(), models.Tournament.prize_pool.desc())
         .all()
     )
 
@@ -165,8 +169,7 @@ def get_calendar(db: Session = Depends(get_db)):
 
     active_detail = None
     if state.active_tournament:
-        # If tournament not yet initialized with participants, initialize it!
-        if not state.active_tournament.participants:
+        if not state.tournament_start_pending and not state.active_tournament.participants:
             svc.initialize_tournament(state.active_tournament.id)
         active_detail = _build_tournament_detail(state.active_tournament, db)
 
@@ -174,6 +177,7 @@ def get_calendar(db: Session = Depends(get_db)):
         current_year=state.current_year,
         current_month=state.current_month,
         active_tournament_id=state.active_tournament_id,
+        tournament_start_pending=state.tournament_start_pending,
         active_tournament=active_detail,
         season_tournaments=season_summaries,
         manager_team_rank=manager.team.ranking if (manager and manager.team) else None,
@@ -185,8 +189,52 @@ def get_calendar(db: Session = Depends(get_db)):
 @router.post("/calendar/advance", response_model=CalendarStateResponse)
 def advance_calendar(db: Session = Depends(get_db)):
     svc = TournamentService(db)
-    svc.advance_calendar()
+    try:
+        svc.advance_calendar()
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return get_calendar(db)
+
+
+@router.post("/calendar/start", response_model=CalendarStateResponse)
+def start_current_month_tournaments(db: Session = Depends(get_db)):
+    svc = TournamentService(db)
+    try:
+        svc.start_current_month_tournaments()
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return get_calendar(db)
+
+
+@router.get("/history", response_model=List[TournamentSummaryResponse])
+def get_tournament_history(db: Session = Depends(get_db)):
+    tournaments = (
+        db.query(models.Tournament)
+        .filter(models.Tournament.status == "completed")
+        .order_by(models.Tournament.year.desc(), models.Tournament.month.desc())
+        .all()
+    )
+    return [
+        TournamentSummaryResponse(
+            id=t.id,
+            name=t.name,
+            tier=t.tier,
+            prize_pool=t.prize_pool,
+            year=t.year,
+            month=t.month,
+            status=t.status,
+            min_rank_required=t.min_rank_required,
+            format=t.format,
+            champion_id=t.champion_id,
+            champion_name=t.champion.name if t.champion else None,
+        )
+        for t in tournaments
+    ]
+
+
+@router.get("/yearly-top-20", response_model=List[YearEndTop20Response])
+def get_yearly_top_20(db: Session = Depends(get_db)):
+    return TournamentService(db).get_year_end_top_20()
 
 
 @router.get("/{tournament_id}", response_model=TournamentDetailResponse)
@@ -195,7 +243,17 @@ def get_tournament_detail(tournament_id: int, db: Session = Depends(get_db)):
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")
 
-    if not tournament.participants:
+    state = db.query(models.CalendarState).first()
+    is_pending_current_event = bool(
+        state
+        and state.tournament_start_pending
+        and state.active_tournament_id == tournament_id
+    )
+    if (
+        tournament.status == "active"
+        and not tournament.participants
+        and not is_pending_current_event
+    ):
         TournamentService(db).initialize_tournament(tournament_id)
 
     return _build_tournament_detail(tournament, db)
@@ -223,6 +281,9 @@ def simulate_match(match_id: int, db: Session = Depends(get_db)):
     try:
         match = svc.play_match(match_id)
         return _build_match_response(match)
+    except ValueError as e:
+        status_code = 404 if "not found" in str(e).lower() else 409
+        raise HTTPException(status_code=status_code, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -230,7 +291,16 @@ def simulate_match(match_id: int, db: Session = Depends(get_db)):
 @router.post("/{tournament_id}/simulate-ai-round")
 def simulate_ai_round(tournament_id: int, db: Session = Depends(get_db)):
     svc = TournamentService(db)
-    count = svc.simulate_all_ai_matches(tournament_id)
+    tournament = db.query(models.Tournament).filter(models.Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    if tournament.status == "completed":
+        raise HTTPException(status_code=409, detail="Tournament is already completed")
+
+    try:
+        count = svc.simulate_all_ai_matches(tournament_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return {"message": f"Simulated {count} AI matches", "count": count}
 
 

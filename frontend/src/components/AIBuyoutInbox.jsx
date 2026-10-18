@@ -6,7 +6,7 @@ import './AIBuyoutInbox.css'
  * Renders a notification bell that opens an inbox panel.
  * Each pending AI buyout offer shows Sell / Reject / Negotiate actions.
  */
-export default function AIBuyoutInbox({ offers, onRefresh }) {
+export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = null }) {
   const [open, setOpen] = useState(false)
   const [activeOffer, setActiveOffer] = useState(null)
   const [negotiating, setNegotiating] = useState(false)
@@ -146,6 +146,11 @@ export default function AIBuyoutInbox({ offers, onRefresh }) {
             {actionMsg && (
               <div className="buyout-action-msg">{actionMsg}</div>
             )}
+            {transferLockName && (
+              <div className="buyout-action-msg">
+                Transfers are locked while your team is participating in {transferLockName}. You can still reject offers.
+              </div>
+            )}
 
             {offers.length === 0 ? (
               <p className="buyout-empty">No incoming transfer offers right now.</p>
@@ -173,7 +178,7 @@ export default function AIBuyoutInbox({ offers, onRefresh }) {
                             <button
                               className="buyout-btn buyout-btn--sell"
                               onClick={() => handleAccept(offer)}
-                              disabled={loading}
+                              disabled={loading || Boolean(transferLockName)}
                               type="button"
                             >
                               💰 Sell
@@ -181,7 +186,7 @@ export default function AIBuyoutInbox({ offers, onRefresh }) {
                             <button
                               className="buyout-btn buyout-btn--negotiate"
                               onClick={() => setNegotiating(true)}
-                              disabled={loading}
+                              disabled={loading || Boolean(transferLockName)}
                               type="button"
                             >
                               🤝 Negotiate
@@ -205,13 +210,14 @@ export default function AIBuyoutInbox({ offers, onRefresh }) {
                               className="buyout-counter__input"
                               placeholder="Your asking price…"
                               value={counterAmount}
+                              disabled={Boolean(transferLockName)}
                               onChange={(e) => setCounterAmount(e.target.value)}
                             />
                             <div className="buyout-counter__row">
                               <button
                                 className="buyout-btn buyout-btn--sell"
                                 onClick={() => handleCounter(activeOffer)}
-                                disabled={loading || !counterAmount}
+                                disabled={loading || !counterAmount || Boolean(transferLockName)}
                                 type="button"
                               >
                                 Submit

@@ -100,7 +100,12 @@ class TeamScraperTests(unittest.TestCase):
             """,
             "html.parser",
         )
-        driver = object()
+
+        class Driver:
+            def find_elements(self, by, selector):
+                return []
+
+        driver = Driver()
 
         with patch.object(team_scraper, "get_soup_via_selenium", return_value=soup):
             players = team_scraper.parse_team_lineup(driver, "https://example.com/team")
@@ -111,6 +116,103 @@ class TeamScraperTests(unittest.TestCase):
         )
         self.assertTrue(all("/stats/players/" in player["Profile Link"] for player in players))
         self.assertIn("startDate=2026-06-01", players[0]["Profile Link"])
+
+    def test_lineup_falls_back_to_team_profile_for_current_roster(self):
+        stats_soup = BeautifulSoup(
+            """
+            <div class="grid">
+                <a href="/player/91/decoy-one">Decoy One</a>
+                <a href="/player/92/decoy-two">Decoy Two</a>
+                <a href="/player/93/decoy-three">Decoy Three</a>
+                <a href="/player/94/decoy-four">Decoy Four</a>
+                <a href="/player/95/decoy-five">Decoy Five</a>
+            </div>
+            """,
+            "html.parser",
+        )
+        profile_html = """
+            <a href="/player/99/unrelated">Unrelated player</a>
+            <div class="grid">
+                <a href="/player/1/player-one">BENCH</a>
+                <a href="/player/2/player-two">Player Two</a>
+                <a href="/player/3/player-three">Player Three</a>
+                <a href="/player/4/player-four">Player Four</a>
+                <a href="/player/5/player-five">Player Five</a>
+            </div>
+        """
+
+        class ProfileButton:
+            clicked = False
+
+            def click(self):
+                self.clicked = True
+
+        class Driver:
+            page_source = profile_html
+
+            def __init__(self):
+                self.profile_button = ProfileButton()
+
+            def find_elements(self, by, selector):
+                return [self.profile_button]
+
+        driver = Driver()
+        with (
+            patch.object(team_scraper, "get_soup_via_selenium", return_value=stats_soup),
+            patch.object(team_scraper.time, "sleep"),
+        ):
+            players = team_scraper.parse_team_lineup(driver, "https://example.com/stats/team")
+
+        self.assertTrue(driver.profile_button.clicked)
+        self.assertEqual(
+            [player["Player"] for player in players],
+            ["player one", "Player Two", "Player Three", "Player Four", "Player Five"],
+        )
+        self.assertTrue(all("/stats/players/" in player["Profile Link"] for player in players))
+
+    def test_scraper_skips_csv_teams_and_preserves_existing_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            csv_path = os.path.join(directory, "players.csv")
+            with open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(
+                    csv_file,
+                    fieldnames=["Team", "Player", "Team_Rank"],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "Team": "Vitality",
+                    "Player": "ZywOo",
+                    "Team_Rank": "1",
+                })
+
+            fieldnames, rows, existing_teams = team_scraper.load_existing_player_data(
+                csv_path
+            )
+            pending = team_scraper.get_unprocessed_teams(
+                [{"Team": "VITALITY"}, {"Team": "Spirit"}],
+                existing_teams,
+            )
+            self.assertEqual(pending, [{"Team": "Spirit"}])
+
+            rows.append({
+                "Team": "Spirit",
+                "Player": "donk",
+                "Profile Link": "https://example.com/player/donk",
+            })
+            team_scraper.save_player_data(csv_path, fieldnames, rows)
+            saved_fields, saved_rows, _ = team_scraper.load_existing_player_data(
+                csv_path
+            )
+
+        self.assertEqual(saved_fields, [
+            "Team",
+            "Player",
+            "Team_Rank",
+            "Profile Link",
+            "Team Link",
+        ])
+        self.assertEqual([row["Team"] for row in saved_rows], ["Vitality", "Spirit"])
+        self.assertEqual(saved_rows[0]["Team_Rank"], "1")
 
     def test_rank_scraper_updates_team_rank_in_player_csv(self):
         with tempfile.TemporaryDirectory() as directory:

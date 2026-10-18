@@ -6,24 +6,77 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ]
 
-function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
+function TournamentCalendar({
+  manager,
+  selectedTeam,
+  onUpdateManager,
+  onActiveTournamentChange,
+  onTransferLockChange,
+}) {
   const [calendarData, setCalendarData] = useState(null)
+  const [eventHistory, setEventHistory] = useState([])
+  const [selectedEventId, setSelectedEventId] = useState('')
+  const [historyTournament, setHistoryTournament] = useState(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState(null)
   const [rankings, setRankings] = useState([])
   const [activeSubTab, setActiveSubTab] = useState('groups') // 'groups', 'playoffs', 'seeds', 'rankings', 'stats'
   const [activeGroup, setActiveGroup] = useState('A')
   const [loading, setLoading] = useState(true)
   const [advancing, setAdvancing] = useState(false)
+  const [calendarActionError, setCalendarActionError] = useState(null)
   const [simulatingMatchId, setSimulatingMatchId] = useState(null)
   const [simulatingAi, setSimulatingAi] = useState(false)
   const [selectedScoreboardMatch, setSelectedScoreboardMatch] = useState(null)
   const [activeScoreboardMapIndex, setActiveScoreboardMapIndex] = useState(0)
   const [tournamentStats, setTournamentStats] = useState(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [statsTeamFilter, setStatsTeamFilter] = useState('all')
+  const [statsStageFilter, setStatsStageFilter] = useState('all')
+  const [statsAwardFilter, setStatsAwardFilter] = useState('all')
 
-  useEffect(() => {
-    fetchCalendarData()
-    fetchRankings()
-  }, [])
+  const handleSelectEvent = async (event) => {
+    const tournamentId = String(event.id)
+    const currentTournament = calendarData?.active_tournament
+    const isCurrentTournament = currentTournament?.id === event.id
+    setActiveSubTab('groups')
+    setHistoryTournament(null)
+    setTournamentStats(null)
+    setHistoryError(null)
+    setStatsTeamFilter('all')
+    setStatsStageFilter('all')
+    setStatsAwardFilter('all')
+
+    if (Number(selectedEventId) === event.id || isCurrentTournament) {
+      setSelectedEventId('')
+      onActiveTournamentChange?.(currentTournament?.name || null)
+      return
+    }
+
+    if (event.status !== 'completed' && event.status !== 'active') return
+
+    setSelectedEventId(tournamentId)
+    onActiveTournamentChange?.(event.name)
+
+    try {
+      setHistoryLoading(true)
+      const detailRes = await fetch(`/tournaments/${tournamentId}`)
+      if (!detailRes.ok) throw new Error(`Event details returned HTTP ${detailRes.status}`)
+      const detail = await detailRes.json()
+      setHistoryTournament(detail)
+      if (detail.status === 'completed') {
+        const statsRes = await fetch(`/tournaments/${tournamentId}/stats`)
+        if (!statsRes.ok) throw new Error(`Event statistics returned HTTP ${statsRes.status}`)
+        setTournamentStats(await statsRes.json())
+        setActiveSubTab('stats')
+      }
+    } catch (err) {
+      console.error('Failed to load tournament:', err)
+      setHistoryError('Unable to load this event. Please try again.')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
 
   const fetchTournamentStats = async (tournamentId) => {
     if (!tournamentId) return
@@ -48,6 +101,17 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
       if (res.ok) {
         const data = await res.json()
         setCalendarData(data)
+        setStatsTeamFilter('all')
+        setStatsStageFilter('all')
+        setStatsAwardFilter('all')
+        onActiveTournamentChange?.(data.active_tournament?.name || null)
+        onTransferLockChange?.(
+          data.active_tournament?.status === 'active'
+            && data.active_tournament.is_manager_participating
+            && !data.tournament_start_pending
+            ? data.active_tournament.name
+            : null
+        )
         if (data.manager_budget && onUpdateManager) {
           onUpdateManager({
             ...manager,
@@ -75,30 +139,56 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
     }
   }
 
+  useEffect(() => {
+    fetchCalendarData()
+    fetchRankings()
+    fetch('/tournaments/history')
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        setEventHistory(await res.json())
+      })
+      .catch((err) => console.error('Failed to fetch tournament history:', err))
+  }, [])
+
   const handleAdvanceMonth = async () => {
     try {
       setAdvancing(true)
-      const res = await fetch('/tournaments/calendar/advance', { method: 'POST' })
-      if (res.ok) {
-        const data = await res.json()
-        setCalendarData(data)
-        fetchRankings()
-        if (onUpdateManager) {
-          onUpdateManager({
-            ...manager,
-            budget: data.manager_budget,
-            career_points: data.manager_career_points,
-          })
-        }
+      setCalendarActionError(null)
+      const endpoint = calendarData?.tournament_start_pending
+        ? '/tournaments/calendar/start'
+        : '/tournaments/calendar/advance'
+      const res = await fetch(endpoint, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+
+      setCalendarData(data)
+      onActiveTournamentChange?.(data.active_tournament?.name || null)
+      onTransferLockChange?.(
+        data.active_tournament?.status === 'active'
+          && data.active_tournament.is_manager_participating
+          && !data.tournament_start_pending
+          ? data.active_tournament.name
+          : null
+      )
+      fetchRankings()
+      if (onUpdateManager) {
+        onUpdateManager({
+          ...manager,
+          budget: data.manager_budget,
+          career_points: data.manager_career_points,
+        })
       }
     } catch (err) {
       console.error('Failed to advance calendar:', err)
+      setCalendarActionError(err.message || 'Unable to advance the calendar.')
     } finally {
       setAdvancing(false)
     }
   }
 
   const handleSimulateMatch = async (matchId) => {
+    if (isCompletedEvent || isSpectatorView || calendarData?.tournament_start_pending) return
+
     try {
       setSimulatingMatchId(matchId)
       const res = await fetch(`/tournaments/matches/${matchId}/simulate`, { method: 'POST' })
@@ -118,6 +208,8 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
   }
 
   const handleSimulateAiMatches = async (tournamentId) => {
+    if (isCompletedEvent || isSpectatorView || calendarData?.tournament_start_pending) return
+
     try {
       setSimulatingAi(true)
       const res = await fetch(`/tournaments/${tournamentId}/simulate-ai-round`, { method: 'POST' })
@@ -141,8 +233,83 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
     return <div className="loading-state">Loading Tournament Circuit & Calendar...</div>
   }
 
-  const activeTournament = calendarData?.active_tournament
+  const activeTournament = selectedEventId
+    ? historyTournament
+    : calendarData?.active_tournament
+  const circuitEvents = [...new Map([
+    ...eventHistory,
+    ...(calendarData?.season_tournaments || []),
+  ].map((event) => [event.id, event])).values()]
+    .sort((a, b) => a.year - b.year || a.month - b.month)
+  const isCompletedEvent = activeTournament?.status === 'completed'
   const userTeamId = selectedTeam?.id
+  const isPreTournament = Boolean(
+    !selectedEventId
+      && calendarData?.tournament_start_pending
+      && activeTournament?.id === calendarData?.active_tournament_id
+  )
+  const isSpectatorView = Boolean(
+    activeTournament && !isPreTournament && !activeTournament.participants?.some(
+      (participant) => participant.team_id === userTeamId
+    )
+  )
+  const leaderboardPlayers = tournamentStats?.player_stats || []
+  const teamFilterOptions = [...new Map(
+    leaderboardPlayers.map((player) => [player.team_id, player.team_name])
+  ).entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  const stageLabels = {
+    group: 'Group Stage',
+    quarterfinal: 'Quarter-finals',
+    semifinal: 'Semi-finals',
+    final: 'Finals',
+  }
+  const getPlayerStage = (player) => {
+    const placement = (player.placement || '').toLowerCase()
+    if (placement.includes('champion') || placement.includes('runner-up')) return 'final'
+    if (placement.includes('semi')) return 'semifinal'
+    if (placement.includes('quarter')) return 'quarterfinal'
+    return 'group'
+  }
+  const stageFilterOptions = [...new Set(leaderboardPlayers.map(getPlayerStage))]
+    .sort((a, b) => ['group', 'quarterfinal', 'semifinal', 'final'].indexOf(a) -
+      ['group', 'quarterfinal', 'semifinal', 'final'].indexOf(b))
+  const filteredLeaderboardPlayers = leaderboardPlayers.filter((player) => {
+    const matchesTeam = statsTeamFilter === 'all' || String(player.team_id) === statsTeamFilter
+    const matchesStage = statsStageFilter === 'all' || getPlayerStage(player) === statsStageFilter
+    const matchesAward = statsAwardFilter === 'all' ||
+      (statsAwardFilter === 'none'
+        ? !player.award
+        : statsAwardFilter === 'EVP'
+          ? player.award?.startsWith('EVP')
+          : player.award === statsAwardFilter)
+    return matchesTeam && matchesStage && matchesAward
+  })
+  const refreshSelectedEvent = async () => {
+    const tournamentId = selectedEventId || (isSpectatorView ? activeTournament?.id : null)
+    if (!tournamentId) return
+    try {
+      setHistoryLoading(true)
+      const detailRes = await fetch(`/tournaments/${tournamentId}`)
+      if (!detailRes.ok) throw new Error(`Event details returned HTTP ${detailRes.status}`)
+      const detail = await detailRes.json()
+      if (selectedEventId) {
+        setHistoryTournament(detail)
+      } else {
+        setCalendarData((current) => ({ ...current, active_tournament: detail }))
+      }
+      if (detail.status === 'completed') {
+        const statsRes = await fetch(`/tournaments/${tournamentId}/stats`)
+        if (!statsRes.ok) throw new Error(`Event statistics returned HTTP ${statsRes.status}`)
+        setTournamentStats(await statsRes.json())
+      }
+      setHistoryError(null)
+    } catch (err) {
+      console.error('Failed to refresh tournament:', err)
+      setHistoryError('Unable to refresh this event. Please try again.')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
 
   // Group stage matches & standings
   const groupMatches = activeTournament?.matches?.filter((m) => m.stage === 'group_stage') || []
@@ -201,46 +368,72 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
           <button
             className="btn-advance-month"
             onClick={handleAdvanceMonth}
-            disabled={advancing}
-            title="Advance the season to the next month's event"
+            disabled={advancing || Boolean(selectedEventId)}
+            title={
+              calendarData?.tournament_start_pending
+                ? 'Start this month’s tournament'
+                : 'Advance the season to next month and open the transfer window'
+            }
           >
-            {advancing ? 'Simulating & Advancing...' : 'Next Month ⏩'}
+            {advancing
+              ? calendarData?.tournament_start_pending ? 'Starting Tournament...' : 'Advancing Month...'
+              : calendarData?.tournament_start_pending ? 'Advance to Tournament 🏆' : 'Next Month ⏩'}
           </button>
+          {calendarActionError && <span className="form-error" role="alert">{calendarActionError}</span>}
         </div>
       </div>
 
       {/* ── Season Circuit Timeline Strip ── */}
       <div className="circuit-strip-wrapper">
         <div className="circuit-strip-title">
-          <span>📅 2026 Competitive Circuit Schedule</span>
+          <span>📅 Tournament Circuit, Live Events & Archive</span>
         </div>
         <div className="circuit-strip">
-          {calendarData?.season_tournaments?.map((tourney) => {
-            const isActive = tourney.id === activeTournament?.id
+          {circuitEvents.map((tourney) => {
+            const isCurrentEvent = tourney.id === calendarData?.active_tournament?.id
+            const isSelected = selectedEventId
+              ? Number(selectedEventId) === tourney.id
+              : isCurrentEvent
+            const canOpen = tourney.status === 'completed' || tourney.status === 'active'
             const tierClass =
               tourney.tier === 'Major'
                 ? 'tier-major'
                 : tourney.tier === 'S-Tier'
                 ? 'tier-s'
-                : 'tier-a'
+                : tourney.tier === 'A-Tier'
+                ? 'tier-a'
+                : tourney.tier === 'B-Tier'
+                ? 'tier-b'
+                : 'tier-c'
 
             return (
-              <div
+              <button
                 key={tourney.id}
-                className={`circuit-card ${isActive ? 'active' : ''}`}
+                type="button"
+                className={`circuit-card ${isSelected ? 'active' : ''} ${!canOpen ? 'unavailable' : ''}`}
+                onClick={() => handleSelectEvent(tourney)}
+                disabled={!canOpen || historyLoading}
+                title={
+                  tourney.status === 'active'
+                    ? `Watch ${tourney.name} live (${tourney.year})`
+                    : canOpen
+                      ? `View ${tourney.name} (${tourney.year})`
+                      : 'This event has not started yet'
+                }
               >
-                <div className="circuit-card-top">
+                <span className="circuit-card-top">
+                  <span className="circuit-card-year">{tourney.year}</span>
                   <span className="circuit-card-month">{MONTH_NAMES[tourney.month]}</span>
                   <span className={`circuit-card-tier ${tierClass}`}>{tourney.tier}</span>
-                </div>
-                <div className="circuit-card-name">{tourney.name}</div>
-                <div className="circuit-card-bottom">
+                </span>
+                <span className="circuit-card-name">{tourney.name}</span>
+                <span className="circuit-card-bottom">
                   <span className="circuit-card-prize">${tourney.prize_pool.toLocaleString()}</span>
                   <span className={`circuit-card-status status-${tourney.status}`}>
                     {tourney.status}
                   </span>
-                </div>
-              </div>
+                </span>
+              </button>
             )
           })}
         </div>
@@ -249,6 +442,26 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
       {/* ── Active Tournament Hub ── */}
       {activeTournament ? (
         <div className="active-tournament-hub">
+          {(selectedEventId || isSpectatorView || isPreTournament) && (
+            <div className="archive-viewing-banner">
+              {isPreTournament
+                ? 'Transfer window open · Make changes before starting the tournament'
+                : isCompletedEvent
+                ? `Archived event · ${activeTournament.year}`
+                : `Spectating · Your team isn't participating in this event`}
+              {(selectedEventId || isSpectatorView) && !isCompletedEvent && (
+                <button
+                  className="btn-view-score"
+                  onClick={refreshSelectedEvent}
+                  disabled={historyLoading}
+                  style={{ marginLeft: '0.6rem' }}
+                >
+                  {historyLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              )}
+              {historyError && <span role="alert">{historyError}</span>}
+            </div>
+          )}
           {/* Tournament Header Banner */}
           <div className="tournament-banner">
             <div className="tournament-header-info">
@@ -260,7 +473,11 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                       ? 'tier-major'
                       : activeTournament.tier === 'S-Tier'
                       ? 'tier-s'
-                      : 'tier-a'
+                      : activeTournament.tier === 'A-Tier'
+                      ? 'tier-a'
+                      : activeTournament.tier === 'B-Tier'
+                      ? 'tier-b'
+                      : 'tier-c'
                   }`}
                 >
                   {activeTournament.tier}
@@ -282,14 +499,14 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
             {/* Manager Team Invite Status */}
             <div
               className={`tournament-manager-invite-badge ${
-                activeTournament.is_manager_invited ? 'invite-invited' : 'invite-not-invited'
+                isSpectatorView ? 'invite-not-invited' : 'invite-invited'
               }`}
             >
-              {activeTournament.is_manager_invited ? (
-                <>🏆 {activeTournament.manager_invite_reason}</>
-              ) : (
-                <>⚠️ {activeTournament.manager_invite_reason}</>
-              )}
+              {isPreTournament
+                ? <>🔓 Transfers are open before the tournament starts</>
+                : isSpectatorView
+                ? <>👀 Spectating — your team is not in this tournament</>
+                : <>🏆 Your team is participating in this tournament</>}
             </div>
           </div>
 
@@ -407,13 +624,15 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
               <div className="matches-section" style={{ marginTop: '2rem' }}>
                 <div className="matches-section-header">
                   <h4>Group {activeGroup} Matches (Round Robin)</h4>
-                  <button
-                    className="btn-sim-ai"
-                    onClick={() => handleSimulateAiMatches(activeTournament.id)}
-                    disabled={simulatingAi}
-                  >
-                    {simulatingAi ? 'Simulating...' : '⚡ Simulate AI Matches'}
-                  </button>
+                  {!isSpectatorView && (
+                    <button
+                      className="btn-sim-ai"
+                      onClick={() => handleSimulateAiMatches(activeTournament.id)}
+                      disabled={simulatingAi || isCompletedEvent || isPreTournament}
+                    >
+                      {simulatingAi ? 'Simulating...' : '⚡ Simulate AI Matches'}
+                    </button>
+                  )}
                 </div>
 
                 <div className="match-list-grid">
@@ -459,11 +678,13 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                             >
                               Scoreboard 📊
                             </button>
+                          ) : isSpectatorView ? (
+                            <span className="text-muted">Not played yet</span>
                           ) : (
                             <button
                               className="btn-play-match"
                               onClick={() => handleSimulateMatch(m.id)}
-                              disabled={isSimulating}
+                              disabled={isSimulating || isCompletedEvent || isPreTournament}
                             >
                               {isSimulating ? 'Playing...' : isUserMatch ? 'Play Match ⚔️' : 'Simulate'}
                             </button>
@@ -543,11 +764,13 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                               >
                                 Scoreboard 📊
                               </button>
+                            ) : isSpectatorView ? (
+                              <span className="text-muted">Not played yet</span>
                             ) : (
                               <button
                                 className="btn-play-match"
                                 onClick={() => handleSimulateMatch(m.id)}
-                                disabled={isSimulating}
+                                disabled={isSimulating || isCompletedEvent || isPreTournament}
                               >
                                 {isSimulating ? 'Playing...' : isUserMatch ? 'Play QF ⚔️' : 'Simulate'}
                               </button>
@@ -608,11 +831,13 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                               >
                                 Scoreboard 📊
                               </button>
+                            ) : isSpectatorView ? (
+                              <span className="text-muted">Not played yet</span>
                             ) : (
                               <button
                                 className="btn-play-match"
                                 onClick={() => handleSimulateMatch(m.id)}
-                                disabled={isSimulating}
+                                disabled={isSimulating || isCompletedEvent || isPreTournament}
                               >
                                 {isSimulating ? 'Playing...' : isUserMatch ? 'Play Semi ⚔️' : 'Simulate'}
                               </button>
@@ -674,11 +899,13 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                               >
                                 Scoreboard 📊
                               </button>
+                            ) : isSpectatorView ? (
+                              <span className="text-muted">Not played yet</span>
                             ) : (
                               <button
                                 className="btn-play-match"
                                 onClick={() => handleSimulateMatch(m.id)}
-                                disabled={isSimulating}
+                                disabled={isSimulating || isCompletedEvent || isPreTournament}
                               >
                                 {isSimulating ? 'Playing...' : isUserMatch ? 'Play Final ⚔️' : 'Simulate'}
                               </button>
@@ -696,8 +923,10 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
           {/* ── Subtab: Player Stats ── */}
           {activeSubTab === 'stats' && (
             <div className="event-stats-wrapper">
-              {statsLoading ? (
+              {historyLoading || statsLoading ? (
                 <div className="loading-state" style={{ padding: '3rem', textAlign: 'center' }}>Loading event statistics...</div>
+              ) : historyError ? (
+                <div className="empty-state">{historyError}</div>
               ) : !tournamentStats ? (
                 <div className="empty-state">No stats available yet. Play some matches first!</div>
               ) : (
@@ -746,6 +975,50 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                       <h4>📈 Event Player Leaderboard</h4>
                       <span className="stats-note">{tournamentStats.is_completed ? '✅ Final' : '⏳ In Progress'}</span>
                     </div>
+                    <div className="stats-leaderboard-controls">
+                      <label>
+                        <span>Team</span>
+                        <select
+                          aria-label="Filter leaderboard by team"
+                          value={statsTeamFilter}
+                          onChange={(event) => setStatsTeamFilter(event.target.value)}
+                        >
+                          <option value="all">All teams</option>
+                          {teamFilterOptions.map(([teamId, teamName]) => (
+                            <option key={teamId} value={teamId}>{teamName}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Stage</span>
+                        <select
+                          aria-label="Filter leaderboard by stage"
+                          value={statsStageFilter}
+                          onChange={(event) => setStatsStageFilter(event.target.value)}
+                        >
+                          <option value="all">All stages</option>
+                          {stageFilterOptions.map((stage) => (
+                            <option key={stage} value={stage}>{stageLabels[stage]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Award</span>
+                        <select
+                          aria-label="Filter leaderboard by award"
+                          value={statsAwardFilter}
+                          onChange={(event) => setStatsAwardFilter(event.target.value)}
+                        >
+                          <option value="all">All players</option>
+                          <option value="MVP">MVP</option>
+                          <option value="EVP">EVP</option>
+                          <option value="none">No award</option>
+                        </select>
+                      </label>
+                      <span className="stats-filter-count">
+                        Showing {filteredLeaderboardPlayers.length} of {leaderboardPlayers.length}
+                      </span>
+                    </div>
                     <div className="stats-table-scroll">
                       <table className="cs-scoreboard-table event-stats-table">
                         <thead>
@@ -765,7 +1038,7 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                           </tr>
                         </thead>
                         <tbody>
-                          {tournamentStats.player_stats?.map((ps, idx) => {
+                          {filteredLeaderboardPlayers.map((ps, idx) => {
                             const isMvp = ps.award === 'MVP'
                             const isEvp = ps.award && ps.award.startsWith('EVP')
                             const ratingClass =
@@ -802,6 +1075,13 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
                               </tr>
                             )
                           })}
+                          {filteredLeaderboardPlayers.length === 0 && (
+                            <tr>
+                              <td className="stats-filter-empty" colSpan="12">
+                                No players match these filters.
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -868,6 +1148,10 @@ function TournamentCalendar({ manager, selectedTeam, onUpdateManager }) {
               </table>
             </div>
           )}
+        </div>
+      ) : selectedEventId ? (
+        <div className="empty-state">
+          {historyLoading ? 'Loading archived event...' : historyError || 'Archived event details are unavailable.'}
         </div>
       ) : (
         <div className="empty-state">No tournament active in current month.</div>

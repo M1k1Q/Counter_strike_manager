@@ -1,10 +1,32 @@
 import os
+from pathlib import Path
 
 
 DEFAULT_DB_NAME = "cs_manager.db"
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_DB_PATH = os.path.join(BASE_DIR, DEFAULT_DB_NAME)
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DB_PATH}")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_DB_PATH = BASE_DIR / DEFAULT_DB_NAME
+
+
+def _resolve_database_url() -> str:
+    raw_url = os.getenv("DATABASE_URL")
+    if not raw_url:
+        return f"sqlite:///{DEFAULT_DB_PATH}"
+
+    if raw_url.startswith("sqlite") and raw_url.startswith("sqlite:///"):
+        sqlite_path = raw_url[len("sqlite:///") :]
+        if sqlite_path == ":memory:":
+            return raw_url
+        if not os.path.isabs(sqlite_path):
+            sqlite_path = str((BASE_DIR / sqlite_path).resolve())
+        sqlite_dir = os.path.dirname(sqlite_path)
+        if sqlite_dir and not os.path.exists(sqlite_dir):
+            os.makedirs(sqlite_dir, exist_ok=True)
+        return f"sqlite:///{sqlite_path}"
+
+    return raw_url
+
+
+DATABASE_URL = _resolve_database_url()
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "cs_manager_super_secret_jwt_key_2026_change_in_production")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")

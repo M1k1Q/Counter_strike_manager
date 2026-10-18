@@ -4,8 +4,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app import models
+from app.api.routes.tournaments import get_tournament_history, get_yearly_top_20
+from app.api.schemas.tournament_schema import YearEndTop20Response
 from app.domain.enums import MatchFormats, TournamentTier, TournamentStatus, MatchStage, MatchStatus
 from app.services.match_engine import MatchEngine
+from app.services.transfer_service import transfer_lock_name
 from app.services.tournament_service import TournamentService
 
 
@@ -177,10 +180,10 @@ def test_tournament_calendar_lifecycle(test_db):
     assert state.current_month == 1
     assert state.active_tournament is not None
 
+    # Start the season's opening tournament.
+    state = svc.start_current_month_tournaments()
     tournament = state.active_tournament
-
-    # Initialize tournament
-    svc.initialize_tournament(tournament.id)
+    assert tournament is not None
 
     # 16 participants seeded
     assert len(tournament.participants) == 16
@@ -272,6 +275,403 @@ def test_tournament_calendar_lifecycle(test_db):
         assert evp["reached_playoffs"] is True
         assert evp["award"].startswith("EVP #")
 
+    with pytest.raises(ValueError, match="already completed"):
+        svc.play_match(gf_matches[0].id)
+    with pytest.raises(ValueError, match="already completed"):
+        svc.simulate_all_ai_matches(tournament.id)
+
     # Advance calendar
     new_state = svc.advance_calendar()
     assert new_state.current_month == 2
+
+
+def test_tournament_skips_underfilled_team_and_invites_next_ranked_team(test_db):
+    underfilled_team = test_db.query(models.Team).filter_by(ranking=16).one()
+    removed_player = (
+        test_db.query(models.Player)
+        .filter_by(team_id=underfilled_team.id)
+        .first()
+    )
+    test_db.delete(removed_player)
+
+    next_ranked_team = models.Team(
+        name="Team 17",
+        ranking=17,
+        ranking_points=0,
+        budget=1_000_000,
+    )
+    test_db.add(next_ranked_team)
+    test_db.flush()
+    test_db.add_all([
+        models.Player(
+            player=f"Player_17_{player_number}",
+            team_id=next_ranked_team.id,
+            overall_rating=1.0,
+            is_active_roster=True,
+        )
+        for player_number in range(1, 6)
+    ])
+    test_db.commit()
+
+    service = TournamentService(test_db)
+    service.get_or_create_calendar_state()
+    state = service.start_current_month_tournaments()
+    tournament = state.active_tournament
+    assert tournament is not None
+
+    participant_team_ids = {participant.team_id for participant in tournament.participants}
+    assert len(participant_team_ids) == 16
+    assert underfilled_team.id not in participant_team_ids
+    assert next_ranked_team.id in participant_team_ids
+
+
+def test_major_evps_bias_toward_deeper_playoff_runs(test_db):
+    tournament = models.Tournament(
+        name="Test Major",
+        tier=TournamentTier.MAJOR.value,
+        year=2026,
+        month=5,
+        status=TournamentStatus.COMPLETED.value,
+        champion_id=1,
+    )
+    test_db.add(tournament)
+    test_db.flush()
+
+    placements = {
+        1: "Champion",
+        2: "Runner-Up",
+        3: "Semifinals",
+        4: "Semifinals",
+        5: "Quarterfinalist",
+        6: "Quarterfinalist",
+        7: "Quarterfinalist",
+        8: "Quarterfinalist",
+    }
+    for team_id in range(1, 17):
+        test_db.add(models.TournamentParticipant(
+            tournament_id=tournament.id,
+            team_id=team_id,
+            seed=team_id,
+            group_name="A",
+            placement=placements.get(team_id, "Group Stage"),
+        ))
+
+    qf_pairs = [(1, 8), (2, 7), (3, 6), (4, 5)]
+    qf_matches = []
+    for team1_id, team2_id in qf_pairs:
+        match = models.Match(
+            tournament_id=tournament.id,
+            stage=MatchStage.QUARTER_FINAL.value,
+            team1_id=team1_id,
+            team2_id=team2_id,
+            status=MatchStatus.COMPLETED.value,
+        )
+        test_db.add(match)
+        qf_matches.append(match)
+    test_db.flush()
+
+    semi_matches = []
+    for team1_id, team2_id in [(1, 3), (2, 4)]:
+        match = models.Match(
+            tournament_id=tournament.id,
+            stage=MatchStage.SEMI_FINAL.value,
+            team1_id=team1_id,
+            team2_id=team2_id,
+            status=MatchStatus.COMPLETED.value,
+        )
+        test_db.add(match)
+        semi_matches.append(match)
+
+    final = models.Match(
+        tournament_id=tournament.id,
+        stage=MatchStage.GRAND_FINAL.value,
+        team1_id=1,
+        team2_id=2,
+        status=MatchStatus.COMPLETED.value,
+    )
+    test_db.add(final)
+    test_db.flush()
+
+    player_ratings = {
+        1: [0.98, 0.95, 0.80, 0.80, 0.80],
+        2: [0.98, 0.80, 0.80, 0.80, 0.80],
+        3: [1.10, 1.20, 0.80, 0.80, 0.80],
+        4: [1.10, 0.80, 0.80, 0.80, 0.80],
+        5: [1.30, 0.80, 0.80, 0.80, 0.80],
+        6: [1.30, 0.80, 0.80, 0.80, 0.80],
+        7: [1.30, 0.80, 0.80, 0.80, 0.80],
+        8: [1.30, 0.80, 0.80, 0.80, 0.80],
+    }
+    qf_match_by_team = {
+        team_id: match
+        for match, pair in zip(qf_matches, qf_pairs)
+        for team_id in pair
+    }
+    semi_match_by_team = {
+        team_id: match
+        for match, pair in zip(semi_matches, [(1, 3), (2, 4)])
+        for team_id in pair
+    }
+
+    for team_id, ratings in player_ratings.items():
+        if team_id in (1, 2):
+            match = final
+        elif team_id in (3, 4):
+            match = semi_match_by_team[team_id]
+        else:
+            match = qf_match_by_team[team_id]
+
+        team = test_db.query(models.Team).filter_by(id=team_id).one()
+        for player, rating in zip(team.players, ratings):
+            test_db.add(models.PlayerMatchStat(
+                match_id=match.id,
+                player_id=player.id,
+                team_id=team_id,
+                kills=20,
+                deaths=15,
+                assists=5,
+                adr=85.0,
+                rating=rating,
+            ))
+    test_db.commit()
+
+    svc = TournamentService(test_db)
+    major_stats = svc.get_tournament_stats(tournament.id)
+    semifinalist_player_id = test_db.query(models.Player).filter_by(team_id=3).all()[1].id
+    quarterfinal_star_id = test_db.query(models.Player).filter_by(team_id=5).first().id
+    major_evp_ids = [player["player_id"] for player in major_stats["evps"]]
+
+    assert major_stats["mvp"]["team_id"] == tournament.champion_id
+    assert semifinalist_player_id in major_evp_ids
+    assert all(player["rating"] >= 1.15 for player in major_stats["evps"])
+    assert major_evp_ids.index(semifinalist_player_id) < major_evp_ids.index(quarterfinal_star_id)
+
+    tournament.tier = TournamentTier.S_TIER.value
+    test_db.commit()
+    non_major_stats = svc.get_tournament_stats(tournament.id)
+    non_major_evp_ids = [player["player_id"] for player in non_major_stats["evps"]]
+    assert all(player["rating"] >= 1.15 for player in non_major_stats["evps"])
+    assert non_major_evp_ids.index(quarterfinal_star_id) < non_major_evp_ids.index(semifinalist_player_id)
+
+
+def test_tournament_history_lists_completed_events_newest_first(test_db):
+    completed_events = [
+        models.Tournament(
+            name="Older Event",
+            tier=TournamentTier.S_TIER.value,
+            year=2025,
+            month=12,
+            status=TournamentStatus.COMPLETED.value,
+        ),
+        models.Tournament(
+            name="Newer Event",
+            tier=TournamentTier.MAJOR.value,
+            year=2026,
+            month=5,
+            status=TournamentStatus.COMPLETED.value,
+        ),
+    ]
+    upcoming_event = models.Tournament(
+        name="Upcoming Event",
+        tier=TournamentTier.S_TIER.value,
+        year=2026,
+        month=7,
+        status=TournamentStatus.UPCOMING.value,
+    )
+    test_db.add_all([*completed_events, upcoming_event])
+    test_db.commit()
+
+    history = get_tournament_history(test_db)
+
+    assert [event.name for event in history] == ["Newer Event", "Older Event"]
+
+
+def test_calendar_month_advance_opens_transfers_until_tournament_start(test_db):
+    service = TournamentService(test_db)
+    state = service.get_or_create_calendar_state()
+    finished_event = state.active_tournament
+    assert state.tournament_start_pending
+    assert finished_event is not None
+    assert not finished_event.participants
+
+    finished_event.status = TournamentStatus.COMPLETED.value
+    state.tournament_start_pending = False
+    test_db.commit()
+
+    state = service.advance_calendar()
+    next_event = state.active_tournament
+    assert state.current_month == 2
+    assert state.tournament_start_pending
+    assert next_event is not None
+    assert next_event.status == TournamentStatus.UPCOMING.value
+    assert not next_event.participants
+    assert transfer_lock_name(test_db, 1) is None
+
+    state = service.start_current_month_tournaments()
+    next_event = state.active_tournament
+    assert not state.tournament_start_pending
+    assert next_event is not None
+    assert next_event.status == TournamentStatus.ACTIVE.value
+    assert any(participant.team_id == 1 for participant in next_event.participants)
+    assert transfer_lock_name(test_db, 1) == next_event.name
+
+
+def test_calendar_skips_months_without_scheduled_tournaments(test_db):
+    service = TournamentService(test_db)
+    state = service.get_or_create_calendar_state()
+    march_event = (
+        test_db.query(models.Tournament)
+        .filter_by(year=2026, month=3)
+        .first()
+    )
+    assert march_event is not None
+    march_event.status = TournamentStatus.COMPLETED.value
+    state.current_month = 3
+    state.active_tournament_id = march_event.id
+    state.tournament_start_pending = False
+    test_db.commit()
+
+    state = service.advance_calendar()
+
+    assert (state.current_year, state.current_month) == (2026, 5)
+    assert state.tournament_start_pending
+    assert state.active_tournament is not None
+    assert state.active_tournament.month == 5
+
+
+def test_year_end_archive_tracks_awards_and_compacts_match_stats(test_db):
+    tournament = models.Tournament(
+        name="Year-End Test Event",
+        tier=TournamentTier.S_TIER.value,
+        year=2026,
+        month=12,
+        status=TournamentStatus.COMPLETED.value,
+        champion_id=1,
+    )
+    test_db.add(tournament)
+    test_db.flush()
+    test_db.add_all([
+        models.TournamentParticipant(
+            tournament_id=tournament.id,
+            team_id=1,
+            seed=1,
+            placement="Champion",
+        ),
+        models.TournamentParticipant(
+            tournament_id=tournament.id,
+            team_id=2,
+            seed=2,
+            placement="Runner-Up",
+        ),
+    ])
+    final = models.Match(
+        tournament_id=tournament.id,
+        stage=MatchStage.GRAND_FINAL.value,
+        status=MatchStatus.COMPLETED.value,
+        team1_id=1,
+        team2_id=2,
+        winner_id=1,
+    )
+    test_db.add(final)
+    test_db.flush()
+    map_result = models.MapResult(
+        match_id=final.id,
+        map_number=1,
+        map_name="Mirage",
+        winner_id=1,
+    )
+    test_db.add(map_result)
+    test_db.flush()
+
+    superstar = test_db.query(models.Player).filter_by(team_id=1).first()
+    for team_id in (1, 2):
+        team = test_db.query(models.Team).filter_by(id=team_id).one()
+        for player in team.players:
+            test_db.add(models.PlayerMatchStat(
+                match_id=final.id,
+                map_result_id=map_result.id,
+                player_id=player.id,
+                team_id=team_id,
+                kills=25,
+                deaths=15,
+                assists=6,
+                adr=90.0,
+                rating=1.40 if player.id == superstar.id else 1.20,
+            ))
+    test_db.add(models.CalendarState(
+        current_year=2026,
+        current_month=12,
+        manager_id=1,
+        active_tournament_id=tournament.id,
+    ))
+    test_db.commit()
+
+    service = TournamentService(test_db)
+    state = service.advance_calendar()
+
+    assert (state.current_year, state.current_month) == (2027, 1)
+    assert test_db.query(models.PlayerMatchStat).count() == 0
+    assert test_db.query(models.TournamentPlayerStatArchive).filter_by(
+        tournament_id=tournament.id
+    ).count() == 10
+
+    season = get_yearly_top_20(test_db)[0]
+    assert season["year"] == 2026
+    assert len(season["players"]) == 10
+    assert season["players"][0]["player_id"] == superstar.id
+    assert season["players"][0]["mvp_count"] == 1
+    assert sum(player["evp_count"] for player in season["players"]) == 9
+    validated_season = YearEndTop20Response.model_validate(season)
+    assert validated_season.players[0].rank == 1
+    superstar_honors = validated_season.players[0].honors
+    assert len(superstar_honors) == 1
+    assert superstar_honors[0].event_name == tournament.name
+    assert superstar_honors[0].award == "MVP"
+    assert superstar_honors[0].month == 12
+    runner_up_player = next(player for player in season["players"] if player["player_id"] != superstar.id)
+    assert runner_up_player["honors"][0]["award"].startswith("EVP #")
+
+    archived_event = service.get_tournament_stats(tournament.id)
+    assert archived_event["mvp"]["player_id"] == superstar.id
+    assert len(archived_event["player_stats"]) == 10
+
+    service.archive_year_end_stats(2026)
+    test_db.commit()
+    assert test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).count() == 10
+
+
+def test_december_advance_finishes_bracket_before_archiving(test_db):
+    tournament = models.Tournament(
+        name="December Final",
+        tier=TournamentTier.S_TIER.value,
+        year=2026,
+        month=12,
+        status=TournamentStatus.ACTIVE.value,
+    )
+    test_db.add(tournament)
+    test_db.flush()
+    test_db.add(models.CalendarState(
+        current_year=2026,
+        current_month=12,
+        manager_id=1,
+        active_tournament_id=tournament.id,
+    ))
+    test_db.commit()
+
+    state = TournamentService(test_db).advance_calendar()
+
+    assert (state.current_year, state.current_month) == (2027, 1)
+    assert tournament.status == TournamentStatus.COMPLETED.value
+    assert test_db.query(models.Match).filter_by(
+        tournament_id=tournament.id,
+        status=MatchStatus.SCHEDULED.value,
+    ).count() == 0
+    assert test_db.query(models.TournamentPlayerStatArchive).filter_by(
+        tournament_id=tournament.id
+    ).count() > 0
+    assert test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).count() > 0
+    assert test_db.query(models.PlayerMatchStat).filter(
+        models.PlayerMatchStat.match_id.in_(
+            test_db.query(models.Match.id).filter_by(tournament_id=tournament.id)
+        )
+    ).count() == 0

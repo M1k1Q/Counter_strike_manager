@@ -39,6 +39,8 @@ class TournamentTier(str, Enum):
     MAJOR = "Major"
     S_TIER = "S-Tier"
     A_TIER = "A-Tier"
+    B_TIER = "B-Tier"
+    C_TIER = "C-Tier"
 
 
 class TournamentStatus(str, Enum):

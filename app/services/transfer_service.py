@@ -1,14 +1,152 @@
-from sqlalchemy import or_
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app import models
+
+MAX_AI_ROSTER_SIZE = 5
+ACTIVE_TOURNAMENT_STATUS = "active"
+
+
+def active_tournament_team_ids(db: Session) -> set[int]:
+    return {
+        team_id
+        for (team_id,) in (
+            db.query(models.TournamentParticipant.team_id)
+            .join(
+                models.Tournament,
+                models.Tournament.id == models.TournamentParticipant.tournament_id,
+            )
+            .filter(models.Tournament.status == ACTIVE_TOURNAMENT_STATUS)
+            .distinct()
+            .all()
+        )
+    }
+
+
+def transfer_lock_name(db: Session, *team_ids: int | None) -> str | None:
+    relevant_team_ids = {team_id for team_id in team_ids if team_id is not None}
+    if not relevant_team_ids:
+        return None
+
+    locked_tournament = (
+        db.query(models.Tournament.name)
+        .join(
+            models.TournamentParticipant,
+            models.TournamentParticipant.tournament_id == models.Tournament.id,
+        )
+        .filter(
+            models.Tournament.status == ACTIVE_TOURNAMENT_STATUS,
+            models.TournamentParticipant.team_id.in_(relevant_team_ids),
+        )
+        .order_by(models.Tournament.year.desc(), models.Tournament.month.desc())
+        .first()
+    )
+    return locked_tournament[0] if locked_tournament else None
+
+
+def ensure_transfers_unlocked(db: Session, *team_ids: int | None) -> None:
+    event_name = transfer_lock_name(db, *team_ids)
+    if event_name:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Transfers are locked for teams participating in {event_name}.",
+        )
+
+
+def _normalize_role(role: str | None) -> str | None:
+    if not role:
+        return None
+    lowered = role.lower()
+    for position in ("awper", "entry", "support", "lurker"):
+        if position in lowered:
+            return position
+    return None
+
+
+def _player_role(player: models.Player) -> str | None:
+    return _normalize_role(player.selected_role) or _normalize_role(player.role)
+
+
+def _release_ai_roster_slot(db: Session, team: models.Team, incoming_player: models.Player) -> None:
+    roster = db.query(models.Player).filter(models.Player.team_id == team.id).all()
+    incoming_role = _player_role(incoming_player)
+    while len(roster) >= MAX_AI_ROSTER_SIZE:
+        same_role = [
+            player for player in roster
+            if incoming_role and _player_role(player) == incoming_role
+        ]
+        release_pool = same_role or roster
+        released = min(release_pool, key=lambda player: (player.Rating or 0, player.id))
+        released.team_id = None
+        released.is_active_roster = False
+        released.is_igl = False
+        roster.remove(released)
+
+
+def add_player_to_ai_roster(db: Session, team: models.Team, player: models.Player) -> None:
+    _release_ai_roster_slot(db, team, player)
+    player.team_id = team.id
+    player.is_active_roster = False
+    db.flush()
+
+
+def reconcile_ai_rosters(db: Session) -> int:
+    """Fill under-strength AI rosters when the career loads."""
+    manager = db.query(models.Manager).first()
+    manager_team_id = manager.team_id if manager else None
+    teams_query = db.query(models.Team)
+    if manager_team_id is not None:
+        teams_query = teams_query.filter(models.Team.id != manager_team_id)
+    teams = teams_query.order_by(models.Team.ranking.asc()).all()
+    repaired = 0
+
+    for team in teams:
+        if transfer_lock_name(db, team.id):
+            continue
+
+        while True:
+            roster = db.query(models.Player).filter(models.Player.team_id == team.id).all()
+            if len(roster) >= MAX_AI_ROSTER_SIZE:
+                break
+
+            occupied_roles = {_player_role(player) for player in roster}
+            preferred_role = next(
+                (role for role in ("awper", "entry", "support", "lurker") if role not in occupied_roles),
+                None,
+            )
+            candidate = _find_candidate(
+                db,
+                team,
+                None,
+                manager_team_id,
+                preferred_role=preferred_role,
+                prefer_free_agents=True,
+            )
+            if candidate is None:
+                break
+
+            transfer_fee = candidate.price
+            add_player_to_ai_roster(db, team, candidate)
+            team.budget -= transfer_fee
+            repaired += 1
+
+    db.commit()
+    return repaired
 
 
 class TransferService:
     def __init__(self, db: Session):
         self.db = db
 
-    def complete_transfer(self, player: models.Player, target_team_id: int, offer_amount: int, manager: models.Manager, source_team: models.Team):
+    def complete_transfer(
+        self,
+        player: models.Player,
+        target_team_id: int,
+        offer_amount: int,
+        manager: models.Manager,
+        source_team: models.Team,
+    ) -> None:
+        ensure_transfers_unlocked(self.db, source_team.id, target_team_id)
         player.team_id = target_team_id
         player.is_active_roster = False
         source_team.budget += offer_amount
@@ -17,130 +155,92 @@ class TransferService:
         handle_ai_replacement(self.db, source_team.id, player.id)
 
 
-def handle_ai_replacement(db: Session, team_id: int, lost_player_id: int, depth: int = 0):
-    """
-    Future implementation would most likely be a whole proper transfer window implementation
-    along with more fine tuning of the AI teams selecting PROPER replacements
-
-    Called after an AI team loses a player to the human manager.
-    Finds a suitable replacement according to the following rules:
-      - Rating within [lost_player.Rating - 5, lost_player.Rating]
-      - AI team must be able to afford the replacement (budget check)
-      - Prioritise Free Agents; top-10 teams may also target top-10–20 teams
-      - If the best candidate is on the human manager's team, skip (buyout system handles it)
-      - Cascade up to depth 2 if the replacement comes from another AI team
-    """
-    if depth >= 2:
-        return
-
+def handle_ai_replacement(
+    db: Session,
+    team_id: int,
+    lost_player_id: int,
+) -> None:
+    """Replace a lost AI player with a role-compatible free agent, without poaching."""
     team = db.query(models.Team).filter(models.Team.id == team_id).first()
     lost_player = db.query(models.Player).filter(models.Player.id == lost_player_id).first()
-
     if not team or not lost_player:
         return
-
-    lost_rating = lost_player.Rating or 0
-    if lost_rating == 0:
+    if transfer_lock_name(db, team.id):
         return
 
-    min_rating = lost_rating - 5
-    max_rating = lost_rating
-
-    # Identify the human manager's team to skip its players
     manager = db.query(models.Manager).first()
     manager_team_id = manager.team_id if manager else None
-
-    candidate = _find_candidate(db, team, min_rating, max_rating, manager_team_id)
-
-    # Expand search window if no match found
+    candidate = _find_candidate(
+        db,
+        team,
+        lost_player,
+        manager_team_id,
+        preferred_role=_player_role(lost_player),
+        prefer_free_agents=True,
+    )
     if candidate is None:
-        candidate = _find_candidate(db, team, min_rating - 3, max_rating, manager_team_id)
+        return
 
-    if candidate is None:
-        return  # No affordable replacement found — team plays short
-
-    former_team_id = candidate.team_id  # None if free agent
-
-    # Execute the transfer
-    candidate.team_id = team.id
-    candidate.is_active_roster = False  # Will need to be set by team management
-    team.budget -= candidate.price
-
-    db.flush()  # Persist before recursion
-
-    # If replacement came from another AI team, that team now needs a replacement too
-    if former_team_id is not None and former_team_id != manager_team_id:
-        former_team = db.query(models.Team).filter(models.Team.id == former_team_id).first()
-        if former_team:
-            # Credit the selling AI team for the implicit transfer fee (player's price)
-            former_team.budget += candidate.price
-            db.flush()
-            handle_ai_replacement(db, former_team.id, candidate.id, depth + 1)
+    transfer_fee = candidate.price
+    add_player_to_ai_roster(db, team, candidate)
+    team.budget -= transfer_fee
 
 
 def _find_candidate(
     db: Session,
     buying_team: models.Team,
-    min_rating: int,
-    max_rating: int,
+    lost_player: models.Player | None,
     manager_team_id: int | None,
+    excluded_team_ids: frozenset[int] = frozenset(),
+    preferred_role: str | None = None,
+    prefer_free_agents: bool = False,
 ) -> models.Player | None:
-    """
-    Returns the best affordable candidate in the rating window for the given team.
-    Priority order:
-      1. Free agents in the rating window
-      2. For top-10 teams: players on teams ranked between (buying_team.ranking + 1) and 20
-      3. For all other teams: players from lower-ranked AI teams
-    Skips the human manager's team (buyout system handles that path).
-    """
-    buying_rank = buying_team.ranking or 99
-
-    base_query = (
-        db.query(models.Player)
-        .filter(
-            models.Player.Rating >= min_rating,
-            models.Player.Rating <= max_rating,
-            or_(models.Player.team_id.is_(None), models.Player.team_id != buying_team.id),
-        )
+    locked_team_ids = active_tournament_team_ids(db)
+    available_query = db.query(models.Player).filter(
+        (models.Player.team_id.is_(None)) | (models.Player.team_id != buying_team.id),
     )
-
-    # Skip human manager's team — that path goes through the buyout system
+    if locked_team_ids:
+        available_query = available_query.filter(
+            (models.Player.team_id.is_(None))
+            | (~models.Player.team_id.in_(locked_team_ids))
+        )
+    if lost_player is not None:
+        available_query = available_query.filter(models.Player.id != lost_player.id)
     if manager_team_id is not None:
-        base_query = base_query.filter(or_(models.Player.team_id.is_(None), models.Player.team_id != manager_team_id))
+        available_query = available_query.filter(
+            (models.Player.team_id.is_(None)) | (models.Player.team_id != manager_team_id)
+        )
+    candidates = [
+        player for player in available_query.all()
+        if player.team_id is None or player.team_id not in excluded_team_ids
+    ]
 
-    # --- Pass 1: Free Agents ---
-    free_agents = (
-        base_query.filter(models.Player.team_id.is_(None))
-        .order_by(models.Player.Rating.desc())
-        .all()
+    affordable = [
+        player for player in candidates
+        if player.price <= (buying_team.budget or 0)
+    ]
+    if not affordable:
+        return None
+    if prefer_free_agents:
+        free_agents = [player for player in affordable if player.team_id is None]
+        if not free_agents:
+            return None
+        affordable = free_agents
+
+    lost_role = preferred_role
+    if lost_role is None and lost_player is not None:
+        lost_role = _player_role(lost_player)
+    role_fits = [
+        player for player in affordable
+        if lost_role and _player_role(player) == lost_role
+    ]
+    if role_fits:
+        return max(role_fits, key=lambda player: (player.team_id is None, player.Rating or 0))
+
+    return max(
+        affordable,
+        key=lambda player: (
+            player.team_id is None,
+            player.Rating or 0,
+        ),
     )
-    for p in free_agents:
-        if p.price <= buying_team.budget:
-            return p
-
-    # --- Pass 2: Paid transfers ---
-    if buying_rank <= 10:
-        # Top-10 team: can target players on teams ranked buying_rank+1 to 20
-        pool = (
-            base_query.join(models.Team, models.Player.team_id == models.Team.id)
-            .filter(
-                models.Team.ranking > buying_rank,
-                models.Team.ranking <= 20,
-            )
-            .order_by(models.Player.Rating.desc())
-            .all()
-        )
-    else:
-        # Other teams: target players on lower-ranked AI teams
-        pool = (
-            base_query.join(models.Team, models.Player.team_id == models.Team.id)
-            .filter(models.Team.ranking > buying_rank)
-            .order_by(models.Player.Rating.desc())
-            .all()
-        )
-
-    for p in pool:
-        if p.price <= buying_team.budget:
-            return p
-
-    return None

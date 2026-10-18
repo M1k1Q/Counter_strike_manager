@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.database import get_db
+from app.services.transfer_service import (
+    active_tournament_team_ids,
+    add_player_to_ai_roster,
+    ensure_transfers_unlocked,
+)
 
 router = APIRouter(prefix="/ai-buyouts", tags=["ai-buyouts"])
 
@@ -42,11 +47,10 @@ def _execute_sale(db: Session, offer: models.AIBuyoutOffer, sold_for: int) -> No
     if not manager:
         raise HTTPException(status_code=404, detail="No active manager")
 
-    offer.player.team_id = None
-    offer.player.is_active_roster = False
+    ensure_transfers_unlocked(db, manager.team_id, offer.ai_team_id)
     manager.budget += sold_for
     offer.ai_team.budget -= sold_for
-    offer.player.team_id = offer.ai_team_id
+    add_player_to_ai_roster(db, offer.ai_team, offer.player)
 
     offer.status = "accepted"
     offer.current_offer = sold_for
@@ -77,6 +81,10 @@ def generate_ai_buyout_offers(db: Session = Depends(get_db)):
         return {"message": "No active manager or team — nothing to do", "generated": 0}
 
     manager_team_id = manager.team_id
+    locked_team_ids = active_tournament_team_ids(db)
+    if manager_team_id in locked_team_ids:
+        return {"message": "Transfers are locked during your team's active tournament", "generated": 0}
+
     manager_players = db.query(models.Player).filter(models.Player.team_id == manager_team_id).all()
     if not manager_players:
         return {"message": "Manager's team has no players", "generated": 0}
@@ -90,6 +98,9 @@ def generate_ai_buyout_offers(db: Session = Depends(get_db)):
 
     generated = 0
     for ai_team in ai_teams:
+        if ai_team.id in locked_team_ids:
+            continue
+
         if random.random() > 0.30:
             continue
 
@@ -160,6 +171,9 @@ def counter_offer(offer_id: int, body: CounterOfferBody, db: Session = Depends(g
     offer = db.query(models.AIBuyoutOffer).filter(models.AIBuyoutOffer.id == offer_id).first()
     if not offer or offer.status != "pending":
         raise HTTPException(status_code=404, detail="Offer not found or already closed")
+
+    manager = db.query(models.Manager).first()
+    ensure_transfers_unlocked(db, manager.team_id if manager else None, offer.ai_team_id)
 
     ai_ceiling = int(offer.initial_offer * AI_CEILING_MULTIPLIER)
     user_ask = body.counter_amount

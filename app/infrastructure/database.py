@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -8,9 +10,36 @@ try:
 except ImportError:
     pass
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-default_db_path = os.path.join(BASE_DIR, "cs_manager.db")
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{default_db_path}")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+APP_DIR = PROJECT_ROOT / "app"
+default_db_path = APP_DIR / "cs_manager.db"
+
+
+def _resolve_database_url() -> str:
+    raw_url = os.getenv("DATABASE_URL")
+    if not raw_url:
+        return f"sqlite:///{default_db_path}"
+
+    if raw_url.startswith("sqlite"):
+        if raw_url.startswith("sqlite:///:memory:"):
+            return raw_url
+
+        if raw_url.startswith("sqlite:///"):
+            sqlite_path = raw_url[len("sqlite:///") :]
+            if sqlite_path == ":memory:":
+                return raw_url
+            sqlite_path = sqlite_path.replace("\\", "/")
+            if not os.path.isabs(sqlite_path):
+                sqlite_path = str((PROJECT_ROOT / sqlite_path).resolve())
+            sqlite_dir = os.path.dirname(sqlite_path)
+            if sqlite_dir and not os.path.exists(sqlite_dir):
+                os.makedirs(sqlite_dir, exist_ok=True)
+            return f"sqlite:///{sqlite_path}"
+
+    return raw_url
+
+
+DATABASE_URL = _resolve_database_url()
 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):

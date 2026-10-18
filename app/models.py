@@ -40,7 +40,7 @@ class Player(Base):
 
     @property
     def price(self) -> int:
-        base_price = 50_000
+        base_price = 200_000
         
         # 1. Rating multiplier (cubed to make higher ratings exponentially more expensive)
         # e.g., 1.0 rating -> 1x multiplier, 1.2 rating -> ~1.73x multiplier
@@ -63,7 +63,16 @@ class Player(Base):
             # Rank 1 -> 1.5, Rank 100 -> ~1.0
             team_multiplier = 1.0 + max(0, (100 - self.team.ranking) / 200.0)
             
-        final_price = base_price * rating_multiplier * stat_multiplier * team_multiplier
+        star_rating = self.Rating or 0
+        star_multiplier = 1.5 if star_rating >= 90 else 1.0
+
+        final_price = (
+            base_price
+            * rating_multiplier
+            * stat_multiplier
+            * team_multiplier
+            * star_multiplier
+        )
         return int(final_price)
 
 
@@ -90,6 +99,14 @@ class Manager(Base):
 
     team = relationship("Team")
 
+
+class DataMigration(Base):
+    __tablename__ = "data_migrations"
+
+    migration_key = Column(String(100), primary_key=True)
+    applied_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Negotiation(Base):
     __tablename__ = "negotiations"
 
@@ -114,18 +131,38 @@ class Negotiation(Base):
 
     @property
     def is_untouchable(self) -> bool:
-        """Returns True if the player is a franchise star on a top team and offer is below top-tier threshold."""
+        """Return whether a franchise player should reject a below-threshold offer."""
         source_rank = self.source_team.ranking if self.source_team and self.source_team.ranking else 50
-        if source_rank > 5 or not self.player:
+        if not self.player:
             return False
-        
-        star_rating = self.player.Rating or (self.player.overall_rating * 70 if self.player.overall_rating else 75)
-        if star_rating < 82:
+
+        star_rating = (
+            self.player.Rating
+            or (self.player.overall_rating * 70 if self.player.overall_rating else 75)
+        )
+        if star_rating < 92 and (source_rank > 5 or star_rating < 82):
             return False
-            
+
         offer_ratio = self.offer_amount / max(self.player.price, 1)
-        required_multiplier = 2.5 if source_rank <= 3 else 2.0
+        required_multiplier = self.required_offer_multiplier
         return offer_ratio < required_multiplier
+
+    @property
+    def required_offer_multiplier(self) -> float:
+        source_rank = self.source_team.ranking if self.source_team and self.source_team.ranking else 50
+        star_rating = (
+            self.player.Rating
+            or (self.player.overall_rating * 70 if self.player.overall_rating else 75)
+        ) if self.player else 0
+        if star_rating >= 92:
+            return 4.0
+        if source_rank <= 3:
+            return 2.5
+        if source_rank <= 5:
+            return 2.0
+        if source_rank <= 10:
+            return 1.5
+        return 1.1
 
     def calculate_success(self) -> float:
         rounds = self.rounds if self.rounds is not None else 0
@@ -136,14 +173,7 @@ class Negotiation(Base):
         offer_ratio = self.offer_amount / base_price
         
         # 1. Minimum multiplier based on source team rank
-        if source_rank <= 3:
-            required_multiplier = 2.5
-        elif source_rank <= 5:
-            required_multiplier = 2.0
-        elif source_rank <= 10:
-            required_multiplier = 1.5
-        else:
-            required_multiplier = 1.1
+        required_multiplier = self.required_offer_multiplier
 
         # 2. Check Untouchable status
         if self.is_untouchable:
@@ -181,7 +211,7 @@ class Negotiation(Base):
             return f"{player_name} has accepted your offer of ${self.offer_amount:,} and joined your team!"
             
         if self.is_untouchable:
-            req_mult = 2.5 if source_rank <= 3 else 2.0
+            req_mult = self.required_offer_multiplier
             min_val = int((self.player.price or 50000) * req_mult)
             return f"{source_name} considers {player_name} untouchable and will not entertain offers below ${min_val:,} ({req_mult}x market value)."
             
@@ -348,6 +378,59 @@ class CalendarState(Base):
     current_month        = Column(Integer, default=1)
     manager_id           = Column(Integer, ForeignKey("managers.id"), nullable=True)
     active_tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=True)
+    tournament_start_pending = Column(Boolean, default=False, nullable=False)
 
     manager           = relationship("Manager")
     active_tournament = relationship("Tournament", foreign_keys=[active_tournament_id])
+
+
+class TournamentPlayerStatArchive(Base):
+    __tablename__ = "tournament_player_stat_archives"
+    __table_args__ = (
+        UniqueConstraint("tournament_id", "player_id", name="uq_tournament_player_stat_archive"),
+    )
+
+    id            = Column(Integer, primary_key=True, index=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False, index=True)
+    player_id     = Column(Integer, nullable=False)
+    player_name   = Column(String(60), nullable=False)
+    team_id       = Column(Integer, nullable=False)
+    team_name     = Column(String(100), nullable=False)
+    role          = Column(String(30), nullable=True)
+    maps_played   = Column(Integer, nullable=False)
+    kills         = Column(Integer, nullable=False)
+    deaths        = Column(Integer, nullable=False)
+    assists       = Column(Integer, nullable=False)
+    kd_diff       = Column(Integer, nullable=False)
+    kd_ratio      = Column(Float, nullable=False)
+    adr           = Column(Float, nullable=False)
+    rating        = Column(Float, nullable=False)
+    reached_playoffs = Column(Boolean, nullable=False)
+    is_finalist   = Column(Boolean, nullable=False)
+    placement     = Column(String(50), nullable=True)
+    award         = Column(String(20), nullable=True)
+
+
+class YearEndPlayerArchive(Base):
+    __tablename__ = "year_end_player_archives"
+    __table_args__ = (
+        UniqueConstraint("year", "player_id", name="uq_year_end_player_archive"),
+    )
+
+    id          = Column(Integer, primary_key=True, index=True)
+    year        = Column(Integer, nullable=False, index=True)
+    rank        = Column(Integer, nullable=False)
+    player_id   = Column(Integer, nullable=False)
+    player_name = Column(String(60), nullable=False)
+    team_name   = Column(String(100), nullable=False)
+    role        = Column(String(30), nullable=True)
+    maps_played = Column(Integer, nullable=False)
+    kills       = Column(Integer, nullable=False)
+    deaths      = Column(Integer, nullable=False)
+    assists     = Column(Integer, nullable=False)
+    kd_diff     = Column(Integer, nullable=False)
+    kd_ratio    = Column(Float, nullable=False)
+    adr         = Column(Float, nullable=False)
+    rating      = Column(Float, nullable=False)
+    mvp_count   = Column(Integer, nullable=False)
+    evp_count   = Column(Integer, nullable=False)

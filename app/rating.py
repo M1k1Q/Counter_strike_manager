@@ -80,9 +80,9 @@ FALLBACK_WEIGHTS: dict[str, float] = {
 # ---------------------------------------------------------------------------
 W_ROLE    = 0.45
 W_HLTV    = 0.40
-W_RANKING = 0.15
+W_RANKING = 0.46
 
-HLTV_MIN = 0.76
+HLTV_MIN = 0.60
 HLTV_MAX = 1.39
 
 # ---------------------------------------------------------------------------
@@ -110,16 +110,30 @@ def _normalise_hltv(row: pd.Series | dict) -> float:
 
 
 def _ranking_adjustment(rank: int | None, max_rank: int = 17) -> float:
-    if rank is None or max_rank <= 1:
-        return 0.0
-    normalized = 1.0 - (2.0 * (rank - 1) / (max_rank - 1))
-    return normalized * 50.0
+    # Tier 1 (1 - 20)
+    # Tier 2 (21 - 40)
+    # Tier 3 (41+)
+    if rank is None:
+        return -25.0
+    if rank <= 3:
+        return 45.0 - (rank - 1) * 3.5
+    elif rank <= 10:
+        return 38.0 - (rank - 3) * 3.0
+    elif rank <= 20:
+        return 17.0 - (rank - 10) * 1.7
+    elif rank <= 40:
+        # Tier 2: gentle gradual slope
+        return 0.0 - (rank - 20) * 1.5
+    else:
+        # Tier 3: capped floor
+        return -30.0 - min(25.0, (rank - 40) * 0.8)
 
 
 def _post_scale(raw: float) -> int:
     raw = max(0.0, min(100.0, raw))
-    scaled = 65.0 + (math.pow(raw / 100.0, 0.85) * 31.0)
-    return int(round(max(65.0, min(96.0, scaled))))
+    # Minimum rating ~70, elite peak ~96-97
+    scaled = 70.0 + (math.pow(raw / 100.0, 1.25) * 27.0)
+    return int(round(max(70.0, min(97.0, scaled))))
 
 
 def _role_score(row: pd.Series | dict, role: str) -> float:

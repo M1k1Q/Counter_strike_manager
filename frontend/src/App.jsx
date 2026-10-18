@@ -10,7 +10,21 @@ import RosterSwap from './components/RosterSwap'
 import AIBuyoutInbox from './components/AIBuyoutInbox'
 import LoginPage from './components/LoginPage'
 import TournamentCalendar from './components/TournamentCalendar'
+import YearEndTop20 from './components/YearEndTop20'
 import './App.css'
+
+function getTournamentTheme(tournamentName) {
+  const name = tournamentName?.toLowerCase() || ''
+
+  if (name.includes('iem') || name.includes('intel extreme masters')) return 'iem'
+  if (name.includes('esl pro league')) return 'esl-pro-league'
+  if (name.includes('blast')) return 'blast'
+  if (name.includes('roobet')) return 'roobet'
+  if (name.includes('thunderpick')) return 'thunderpick'
+  if (name.includes('rivals')) return 'rivals'
+  if (name.includes('major') || name.includes('pgl')) return 'major'
+  return 'default'
+}
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -39,6 +53,23 @@ function App() {
   const [error, setError] = useState(null)
   const [activePlayer, setActivePlayer] = useState(null)
   const [aiBuyoutOffers, setAiBuyoutOffers] = useState([])
+  const [activeTournamentName, setActiveTournamentName] = useState(null)
+  const [transferLockName, setTransferLockName] = useState(null)
+
+  useEffect(() => {
+    const root = document.documentElement
+    const theme = getTournamentTheme(activeTournamentName)
+
+    if (theme === 'default') {
+      delete root.dataset.eventTheme
+    } else {
+      root.dataset.eventTheme = theme
+    }
+
+    return () => {
+      delete root.dataset.eventTheme
+    }
+  }, [activeTournamentName])
 
   const handleLoginSuccess = (authData) => {
     setToken(authData.access_token)
@@ -56,6 +87,22 @@ function App() {
   useEffect(() => {
     async function initGame() {
       try {
+        const response = await fetch('/tournaments/calendar')
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const calendar = await response.json()
+        setActiveTournamentName(calendar.active_tournament?.name || null)
+        setTransferLockName(
+          calendar.active_tournament?.status === 'active'
+            && calendar.active_tournament.is_manager_participating
+            && !calendar.tournament_start_pending
+            ? calendar.active_tournament.name
+            : null
+        )
+      } catch (err) {
+        console.error('Unable to load active tournament theme:', err)
+      }
+
+      try {
         // 1. Check Manager/Game Status
         const statusRes = await fetch('/game/status')
         if (statusRes.ok) {
@@ -63,6 +110,9 @@ function App() {
           setManager(status.manager)
           setSelectedTeam(status.team)
         }
+
+        const rosterRepairRes = await fetch('/teams/ai-rosters/reconcile', { method: 'POST' })
+        if (!rosterRepairRes.ok) throw new Error(`AI roster repair failed: HTTP ${rosterRepairRes.status}`)
 
         // 2. Fetch Players and Teams
         const [playersRes, teamsRes] = await Promise.all([
@@ -103,6 +153,22 @@ function App() {
 
   const refreshAppData = async () => {
     try {
+      const calendarRes = await fetch('/tournaments/calendar')
+      if (calendarRes.ok) {
+        const calendar = await calendarRes.json()
+        setActiveTournamentName(calendar.active_tournament?.name || null)
+        setTransferLockName(
+          calendar.active_tournament?.status === 'active'
+            && calendar.active_tournament.is_manager_participating
+            && !calendar.tournament_start_pending
+            ? calendar.active_tournament.name
+            : null
+        )
+      }
+
+      const rosterRepairRes = await fetch('/teams/ai-rosters/reconcile', { method: 'POST' })
+      if (!rosterRepairRes.ok) throw new Error(`AI roster repair failed: HTTP ${rosterRepairRes.status}`)
+
       const [playersRes, teamsRes] = await Promise.all([
         fetch('/players'),
         fetch('/teams')
@@ -198,6 +264,9 @@ function App() {
   }
 
   const handleTransferPlayer = async (playerId) => {
+    if (transferLockName) {
+      throw new Error(`Transfers are locked while your team is participating in ${transferLockName}.`)
+    }
     if (!selectedTeam?.id) {
       throw new Error('Select a team before transferring players.')
     }
@@ -213,6 +282,9 @@ function App() {
   }
 
   const handleNegotiatePlayer = async (player, existingNegotiation = null, customOfferAmount = null) => {
+    if (transferLockName) {
+      throw new Error(`Transfers are locked while your team is participating in ${transferLockName}.`)
+    }
     if (!selectedTeam?.id) {
       throw new Error('Select a team before negotiating players.')
     }
@@ -252,6 +324,9 @@ function App() {
   }
 
   const handleReleasePlayer = async (playerId) => {
+    if (transferLockName) {
+      throw new Error(`Transfers are locked while your team is participating in ${transferLockName}.`)
+    }
     if (!selectedTeam?.id) {
       throw new Error('Select a team before removing players.')
     }
@@ -388,13 +463,14 @@ function App() {
 
   return (
     <>
-      <Navbar activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={handleLogout} />
+      <Navbar activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={handleLogout} hasCareer={Boolean(manager)} />
       {/* AI buyout inbox bell — only show when a manager exists */}
       {manager && (
 
         <div style={{ position: 'fixed', top: '14px', right: '20px', zIndex: 950 }}>
           <AIBuyoutInbox
             offers={aiBuyoutOffers}
+            transferLockName={transferLockName}
             onRefresh={() => { refreshBuyoutOffers(); refreshAllData(); }}
           />
         </div>
@@ -593,7 +669,7 @@ function App() {
                                       <td>{player.role || 'Unassigned'}</td>
                                       <td>{getDisplayRating(player)}</td>
                                       <td>
-                                        <button className="btn-secondary" type="button" onClick={(e) => { e.stopPropagation(); handleReleasePlayer(player.id); }}>
+                                        <button className="btn-secondary" type="button" disabled={Boolean(transferLockName)} onClick={(e) => { e.stopPropagation(); handleReleasePlayer(player.id); }}>
                                           Release
                                         </button>
                                       </td>
@@ -619,6 +695,11 @@ function App() {
                   {selectedTeam && manageSubTab === 'transfers' && (
                     <div className="teams-section">
                       <h2 className="section-title">Roster market</h2>
+                      {transferLockName && (
+                        <p className="transfer-lock-notice">
+                          Transfers are locked while your team is participating in {transferLockName}.
+                        </p>
+                      )}
                       <div className="manage-market-list">
                         <div className="team-card">
                           <div className="team-header">
@@ -649,7 +730,7 @@ function App() {
                                       <td>{getDisplayRating(player)}</td>
                                       <td>{player.igl_score != null ? `${player.igl_score.toFixed(0)}%` : '—'}</td>
                                       <td>
-                                        <button className="btn-primary" type="button" onClick={(e) => { e.stopPropagation(); handleTransferPlayer(player.id); }}>
+                                        <button className="btn-primary" type="button" disabled={Boolean(transferLockName)} onClick={(e) => { e.stopPropagation(); handleTransferPlayer(player.id); }}>
                                           Sign
                                         </button>
                                       </td>
@@ -725,7 +806,7 @@ function App() {
                                                 </span>
                                               </td>
                                               <td>
-                                                <button className="btn-secondary btn-sm" type="button" onClick={(e) => {
+                                                <button className="btn-secondary btn-sm" type="button" disabled={Boolean(transferLockName)} onClick={(e) => {
                                                   e.stopPropagation()
                                                   setActivePlayer(player)
                                                   setActiveNegotiation(null)
@@ -758,8 +839,12 @@ function App() {
                   manager={manager}
                   selectedTeam={selectedTeam}
                   onUpdateManager={setManager}
+                  onActiveTournamentChange={setActiveTournamentName}
+                  onTransferLockChange={setTransferLockName}
                 />
               )}
+
+              {activeTab === 'top20' && <YearEndTop20 />}
 
               {activeTab === 'teams' && (
                 <div className="dashboard-grid">
@@ -797,10 +882,10 @@ function App() {
         isSubmitting={modalSubmitting}
         negotiation={activeNegotiation}
         getTeamName={getTeamName}
+        transferLockName={transferLockName}
       />
     </>
   )
 }
 
 export default App
-

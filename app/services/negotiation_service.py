@@ -2,7 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app import models
-from app.services.transfer_service import TransferService
+from app.services.transfer_service import TransferService, ensure_transfers_unlocked
 
 
 class NegotiationService:
@@ -18,6 +18,7 @@ class NegotiationService:
         source_team = self.db.query(models.Team).filter(models.Team.id == player.team_id).first()
         if not source_team:
             raise HTTPException(status_code=404, detail="Source team not found")
+        ensure_transfers_unlocked(self.db, source_team.id, manager.team_id)
 
         if manager.budget < negotiation_data.offer_amount:
             raise HTTPException(status_code=400, detail="Offer exceeds current budget")
@@ -50,6 +51,13 @@ class NegotiationService:
         negotiation = self.db.query(models.Negotiation).filter(models.Negotiation.id == negotiation_id).first()
         if not negotiation or negotiation.status != "pending":
             raise HTTPException(status_code=404, detail="Negotiation not found or closed")
+
+        ensure_transfers_unlocked(
+            self.db,
+            negotiation.source_team_id,
+            negotiation.target_team_id,
+            manager.team_id,
+        )
 
         if negotiation.manager.budget < offer_data.offer_amount:
             raise HTTPException(status_code=400, detail="Offer exceeds current budget")

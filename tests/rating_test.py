@@ -39,6 +39,33 @@ class RatingCalculationTests(unittest.TestCase):
         self.assertGreaterEqual(rating, 65)
         self.assertLessEqual(rating, 96)
 
+    def test_lower_ranked_team_context_can_outweigh_a_farmed_rating_edge(self):
+        jks_profile = {
+            "role": "lurker",
+            "is_igl": False,
+            "Rating": 1.30,
+            "Clutching": 84.0,
+            "Trading": 39.0,
+            "Firepower": 94.0,
+            "Impact": None,
+            "Opening": 65.0,
+        }
+        molodoy_profile = {
+            "role": "awper",
+            "is_igl": False,
+            "Rating": 1.14,
+            "Sniping": 92.0,
+            "Clutching": 62.0,
+            "Opening": 73.0,
+            "Firepower": 84.0,
+            "Impact": None,
+        }
+
+        jks_rating = calculate_rating(jks_profile, team_rank=67, max_rank=148)
+        molodoy_rating = calculate_rating(molodoy_profile, team_rank=4, max_rank=148)
+
+        self.assertLess(jks_rating, molodoy_rating)
+
     def test_normalise_impact(self):
         self.assertEqual(_normalise_impact(pd.NA), 50.0)
         self.assertEqual(_normalise_impact(0.50), 0.0)

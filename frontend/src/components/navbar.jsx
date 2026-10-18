@@ -1,4 +1,4 @@
-function Navbar({ activeTab, onTabChange, user, onLogout }) {
+function Navbar({ activeTab, onTabChange, user, onLogout, hasCareer }) {
   return (
     <nav className="navbar">
       <div className="nav-container">
@@ -16,6 +16,11 @@ function Navbar({ activeTab, onTabChange, user, onLogout }) {
           <li>
             <a href="#" className={`nav-link ${activeTab === 'tournaments' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onTabChange('tournaments') }}>Tournaments 🏆</a>
           </li>
+          {hasCareer && (
+            <li>
+              <a href="#" className={`nav-link ${activeTab === 'top20' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onTabChange('top20') }}>Yearly Top 20</a>
+            </li>
+          )}
           <li>
             <a href="#" className={`nav-link ${activeTab === 'teams' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onTabChange('teams') }}>Teams</a>
           </li>
