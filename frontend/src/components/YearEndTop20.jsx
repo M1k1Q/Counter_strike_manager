@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import './YearEndTop20.css'
+import SeasonRecap from './SeasonRecap.jsx'
 
 function YearEndTop20() {
   const [seasons, setSeasons] = useState([])
   const [selectedYear, setSelectedYear] = useState('')
   const [selectedPlayer, setSelectedPlayer] = useState(null)
+  const [recapSeason, setRecapSeason] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -45,6 +47,7 @@ function YearEndTop20() {
 
   return (
     <section className="year-end-rankings">
+      {recapSeason && <SeasonRecap season={recapSeason} onClose={() => setRecapSeason(null)} />}
       <header className="year-end-header">
         <div>
           <p className="year-end-eyebrow">Season honors</p>
@@ -67,6 +70,7 @@ function YearEndTop20() {
         )}
       </header>
 
+      {activeSeason?.players?.length > 0 && <button type="button" className="btn-secondary" style={{ marginBottom: '1rem' }} onClick={() => setRecapSeason(activeSeason)}>Play season countdown ↗</button>}
       {loading && <p className="year-end-message">Loading year-end rankings…</p>}
       {error && <p className="year-end-message year-end-error">Could not load rankings: {error}</p>}
       {!loading && !error && !activeSeason && (

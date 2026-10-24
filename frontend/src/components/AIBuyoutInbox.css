@@ -211,6 +211,7 @@
 .buyout-status--accepted  { background: rgba(52,211,153,0.15); color: #34d399; }
 .buyout-status--rejected  { background: rgba(239,68,68,0.15);  color: #ef4444; }
 .buyout-status--collapsed { background: rgba(107,114,128,0.15);color: #9ca3af; }
+.buyout-status--withdrawn { background: rgba(107,114,128,0.15);color: #9ca3af; }
 
 /* --- Action buttons row --- */
 .buyout-actions {

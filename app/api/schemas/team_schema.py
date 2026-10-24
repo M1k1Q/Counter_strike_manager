@@ -64,6 +64,7 @@ class TeamNeedsResponse(BaseModel):
 
 class PlayerRoleUpdate(BaseModel):
     role: Optional[str] = None
+    is_igl: Optional[bool] = None
 
     class Config:
         from_attributes = True

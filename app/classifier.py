@@ -183,8 +183,6 @@ def classify_players(df_raw: pd.DataFrame) -> pd.DataFrame:
             
             best_igl_idx = group["igl_score"].idxmax()
             
-            natural_role = result.at[best_igl_idx, "role"]
-            result.at[best_igl_idx, "role"] = f"{natural_role} igl"
             result.at[best_igl_idx, "is_igl"] = True
 
     return result

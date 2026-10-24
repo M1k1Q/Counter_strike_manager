@@ -17,6 +17,11 @@ from app.api.schemas.tournament_schema import (
     TeamRankingResponse,
     TournamentStatsResponse,
     YearEndTop20Response,
+    PreMatchLineupResponse,
+    UserLineupTeamResponse,
+    UserLineupPlayerResponse,
+    OpponentLineupTeamResponse,
+    OpponentLineupPlayerResponse,
 )
 
 router = APIRouter(prefix="/tournaments", tags=["tournaments"])
@@ -310,6 +315,62 @@ def get_match_detail(match_id: int, db: Session = Depends(get_db)):
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
     return _build_match_response(match)
+
+
+@router.get("/matches/{match_id}/lineup", response_model=PreMatchLineupResponse)
+def get_pre_match_lineup(match_id: int, db: Session = Depends(get_db)):
+    match = db.query(models.Match).filter(models.Match.id == match_id).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if match.status == "completed":
+        raise HTTPException(status_code=409, detail="Match has already been played")
+
+    manager = db.query(models.Manager).first()
+    if not manager or not manager.team_id:
+        raise HTTPException(status_code=409, detail="Select a team before viewing match lineups")
+    if manager.team_id not in (match.team1_id, match.team2_id):
+        raise HTTPException(status_code=403, detail="Pre-match lineups are only available for your team's matches")
+
+    user_team = match.team1 if match.team1_id == manager.team_id else match.team2
+    opponent_team = match.team2 if user_team.id == match.team1_id else match.team1
+    match_engine = MatchEngine(db)
+    user_players = match_engine.get_active_roster(user_team)
+    opponent_players = match_engine.get_active_roster(opponent_team)
+
+    return PreMatchLineupResponse(
+        match_id=match.id,
+        format=match.format,
+        round_name=match.round_name,
+        user_team=UserLineupTeamResponse(
+            id=user_team.id,
+            name=user_team.name,
+            ranking=user_team.ranking,
+            players=[
+                UserLineupPlayerResponse(
+                    player_id=player.id,
+                    player_name=player.player,
+                    rating=player.Rating or 70,
+                    form=player.form if player.form is not None else 1.0,
+                    training_form_bonus=player.training_form_bonus or 0.0,
+                )
+                for player in user_players
+            ],
+        ),
+        opponent_team=OpponentLineupTeamResponse(
+            id=opponent_team.id,
+            name=opponent_team.name,
+            ranking=opponent_team.ranking,
+            players=[
+                OpponentLineupPlayerResponse(
+                    player_id=player.id,
+                    player_name=player.player,
+                    rating=player.Rating or 70,
+                    form=player.form if player.form is not None else 1.0,
+                )
+                for player in opponent_players
+            ],
+        ),
+    )
 
 
 @router.get("/rankings/global", response_model=List[TeamRankingResponse])

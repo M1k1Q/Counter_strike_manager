@@ -83,6 +83,8 @@ def seed_database():
                 team_id = team_map.get(team_name)
                 team_rank = team_rank_map.get(team_name)
 
+            rating = calculate_rating(row, team_rank, max_rank=max_team_rank)
+            age = _f(row, "Age")
             db_player = models.Player(
                 player=str(row["Player"]),
                 team_id=team_id,
@@ -101,7 +103,10 @@ def seed_database():
                 confidence=_f(row, "confidence") or 0.0,
                 igl_score=_f(row, "igl_score") or 0.0,
                 is_igl=bool(row.get("is_igl", False)),
-                Rating=calculate_rating(row, team_rank, max_rank=max_team_rank),
+                Rating=rating,
+                potential=rating,
+                age=int(age) if age is not None else 20,
+                form=1.0,
             )
             db.add(db_player)
 

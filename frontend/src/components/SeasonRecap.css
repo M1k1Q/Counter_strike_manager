@@ -1,0 +1,46 @@
+.season-recap { position: fixed; inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; color: var(--text-primary); background: var(--bg-primary); overflow-y: auto; }
+.season-recap::backdrop { background: #050810; }
+.recap-shell { min-height: 100%; display: flex; flex-direction: column; padding: clamp(1.2rem, 4vw, 3.5rem); position: relative; isolation: isolate; background: radial-gradient(ellipse at 75% 45%, var(--accent-glow), transparent 60%), linear-gradient(150deg, transparent 50%, rgba(255,255,255,.025) 50%, transparent 75%); }
+.recap-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; text-align: left; margin: 0 0 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.recap-kicker { display: block; color: var(--accent); font-size: .65rem; font-weight: 750; letter-spacing: .2em; line-height: 1.7; }
+.recap-header h2 { font-size: 1rem; margin-top: .45rem; letter-spacing: -.025em; }
+.recap-text-button { border: 1px solid transparent; background: transparent; color: var(--text-secondary); padding: .65rem .8rem; border-radius: 7px; cursor: pointer; font-size: .78rem; font-weight: 600; }
+.recap-text-button:hover { color: var(--text-primary); background: rgba(255,255,255,.05); }
+.recap-body { flex: 1; display: grid; grid-template-columns: minmax(210px, 280px) minmax(0, 1fr); gap: clamp(1.5rem, 5vw, 6rem); align-items: center; width: 100%; max-width: 1500px; margin: auto; }
+.recap-list { min-width: 0; padding: 1rem; background: rgba(10,14,23,.4); border: 1px solid var(--border); border-radius: 14px; }
+.recap-list > .recap-kicker { padding: .35rem .5rem .8rem; }
+.recap-list ol { list-style: none; max-height: 58dvh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+.recap-list li { display: flex; align-items: center; gap: .75rem; min-height: 51px; padding: .55rem .65rem; border-radius: 7px; opacity: .3; border: 1px solid transparent; }
+.recap-list li.revealed { opacity: 1; }
+.recap-list li.current { background: var(--accent-glow); border-color: var(--accent); }
+.recap-list-rank { color: var(--text-secondary); font-size: .72rem; font-variant-numeric: tabular-nums; }
+.recap-list-name { flex: 1; min-width: 0; font-weight: 650; font-size: .8rem; overflow-wrap: anywhere; }
+.recap-list-name small { display: block; margin-top: .2rem; color: var(--text-secondary); font-weight: 400; font-size: .65rem; }
+.recap-list li > b { color: var(--accent); font-size: .75rem; }
+.recap-stage { min-width: 0; position: relative; }
+.recap-player, .recap-intro, .recap-finale { position: relative; isolation: isolate; padding: 2rem 0; }
+.recap-player { animation: recap-reveal .6s cubic-bezier(.16,1,.3,1) both; }
+.recap-rank-ghost { position: absolute; top: -4rem; right: 1rem; font-size: clamp(12rem, 26vw, 27rem); font-weight: 900; line-height: 1; letter-spacing: -.09em; color: var(--accent); opacity: .055; pointer-events: none; z-index: -1; }
+.recap-rank { color: var(--accent); font-size: clamp(2rem, 4vw, 4rem); font-weight: 850; letter-spacing: -.06em; margin-top: 1.7rem; }
+.recap-rank > span { color: var(--text-muted); font-size: .8rem; font-weight: 500; letter-spacing: .05em; }
+.recap-player h3 { font-size: clamp(2.7rem, 6.5vw, 7rem); font-weight: 850; letter-spacing: -.065em; line-height: 1.1; margin: .6rem 0 1rem; overflow-wrap: anywhere; }
+.recap-podium h3 { text-shadow: 0 0 60px var(--accent-glow); }
+.recap-team { font-size: clamp(.9rem, 1.7vw, 1.3rem); color: var(--text-primary); }
+.recap-team > span { color: var(--text-secondary); text-transform: capitalize; }
+.recap-stat-strip { display: flex; flex-wrap: wrap; gap: clamp(1.3rem, 4vw, 4rem); margin-top: 2.8rem; border-top: 1px solid var(--border); padding-top: 1.6rem; }
+.recap-stat-strip strong { font-size: clamp(1.5rem, 3vw, 2.5rem); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.recap-stat-strip strong > span { color: var(--text-secondary); font-size: .7em; }
+.recap-stat-strip small { display: block; font-size: .58rem; letter-spacing: .13em; color: var(--text-secondary); margin-top: .4rem; }
+.recap-slide-progress { height: 2px; background: var(--border); margin-top: 2.5rem; overflow: hidden; }
+.recap-slide-progress > span { display: block; width: 100%; height: 100%; background: var(--accent); transform-origin: left; animation: recap-progress var(--slide-duration) linear both; }
+.recap-slide-progress.paused > span { animation-play-state: paused; }
+.recap-intro h3, .recap-finale h3 { font-size: clamp(2.4rem, 5.5vw, 5.5rem); line-height: 1.08; letter-spacing: -.06em; margin: 1.5rem 0; }
+.recap-stage em { font-style: normal; color: var(--accent); }
+.recap-intro p, .recap-finale p { font-size: .9rem; line-height: 1.7; color: var(--text-secondary); }
+.recap-finale .btn-primary { margin: 2rem 1rem 0 0; padding: .9rem 1.25rem; }
+.recap-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; color: var(--text-secondary); font-size: .72rem; }
+.recap-footer > div { display: flex; flex-wrap: wrap; }
+@keyframes recap-reveal { from { opacity: 0; transform: translateY(22px) scale(.98); filter: blur(6px); } to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes recap-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (max-width: 700px) { .recap-body { grid-template-columns: 1fr; } .recap-stage { grid-row: 1; } .recap-list ol { max-height: 24dvh; } .recap-player, .recap-intro, .recap-finale { padding: .5rem 0 1rem; } .recap-header { margin-bottom: 1rem; } .recap-header .recap-kicker { font-size: .5rem; } .recap-stat-strip { margin-top: 1.5rem; } .recap-footer { flex-wrap: wrap; } .recap-rank-ghost { top: 0; font-size: 13rem; } }
+@media (prefers-reduced-motion: reduce) { .season-recap *, .season-recap *::before, .season-recap *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } .recap-slide-progress { display: none; } }

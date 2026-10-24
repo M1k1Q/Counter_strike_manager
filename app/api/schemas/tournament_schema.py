@@ -55,6 +55,43 @@ class MatchResponse(BaseModel):
     maps: List[MapResultResponse] = []
 
 
+class UserLineupPlayerResponse(BaseModel):
+    player_id: int
+    player_name: str
+    rating: int
+    form: float
+    training_form_bonus: float
+
+
+class OpponentLineupPlayerResponse(BaseModel):
+    player_id: int
+    player_name: str
+    rating: int
+    form: float
+
+
+class UserLineupTeamResponse(BaseModel):
+    id: int
+    name: str
+    ranking: Optional[int] = None
+    players: List[UserLineupPlayerResponse]
+
+
+class OpponentLineupTeamResponse(BaseModel):
+    id: int
+    name: str
+    ranking: Optional[int] = None
+    players: List[OpponentLineupPlayerResponse]
+
+
+class PreMatchLineupResponse(BaseModel):
+    match_id: int
+    format: str
+    round_name: Optional[str] = None
+    user_team: UserLineupTeamResponse
+    opponent_team: OpponentLineupTeamResponse
+
+
 class TournamentParticipantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

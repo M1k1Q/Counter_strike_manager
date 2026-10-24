@@ -164,6 +164,8 @@ def _role_score(row: pd.Series | dict, role: str) -> float:
 def calculate_rating(row: pd.Series | dict, team_rank: int | None = None, max_rank: int = 16) -> int:
     role = str(row.get("role", "")) if pd.notna(row.get("role")) else ""
     is_igl = bool(row.get("is_igl", False))
+    if is_igl and "igl" not in role.lower().split():
+        role = f"{role} igl".strip()
     
     rs   = _role_score(row, role)
     hltv = _normalise_hltv(row)

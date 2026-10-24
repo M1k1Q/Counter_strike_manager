@@ -149,27 +149,34 @@
   position: fixed;
   inset: 0;
   z-index: 1200;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  background: rgba(3, 7, 16, 0.78);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  background: rgba(6, 9, 16, 0.82);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .year-player-modal {
   position: relative;
   display: grid;
-  gap: 1.5rem;
+  gap: 1.35rem;
   width: min(760px, 100%);
-  max-height: min(88vh, 900px);
+  max-height: min(92vh, 920px);
+  margin: auto;
   overflow-y: auto;
-  padding: clamp(1.25rem, 4vw, 2rem);
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 18px;
+  padding: clamp(1.15rem, 4vw, 2rem);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
   background:
     radial-gradient(ellipse at 8% 0%, rgba(249, 115, 22, 0.13), transparent 45%),
-    linear-gradient(145deg, #151e30, #0b111e 72%);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+    linear-gradient(165deg, #1c2538 0%, #0b111e 100%);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 28px 90px rgba(0, 0, 0, 0.55);
+  scrollbar-width: thin;
 }
 
 .year-player-modal-close {
@@ -360,12 +367,23 @@
     width: 100%;
   }
 
+  .year-player-modal {
+    max-height: calc(100dvh - 1.3rem);
+    border-radius: 14px;
+  }
+
   .year-player-stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr 1fr;
   }
 
   .year-player-honors-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 420px) {
+  .year-player-stat-grid {
+    grid-template-columns: 1fr;
   }
 }

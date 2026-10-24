@@ -7,11 +7,14 @@ import TeamRoster from './components/TeamRoster'
 import TeamNeeds from './components/TeamNeeds'
 import TeamFormation from './components/TeamFormation'
 import RosterSwap from './components/RosterSwap'
+import PlayerTraining from './components/PlayerTraining'
+import PlayerFormTraining from './components/PlayerFormTraining'
 import AIBuyoutInbox from './components/AIBuyoutInbox'
 import LoginPage from './components/LoginPage'
 import TournamentCalendar from './components/TournamentCalendar'
 import YearEndTop20 from './components/YearEndTop20'
 import './App.css'
+import './Refresh.css'
 
 function getTournamentTheme(tournamentName) {
   const name = tournamentName?.toLowerCase() || ''
@@ -55,6 +58,7 @@ function App() {
   const [aiBuyoutOffers, setAiBuyoutOffers] = useState([])
   const [activeTournamentName, setActiveTournamentName] = useState(null)
   const [transferLockName, setTransferLockName] = useState(null)
+  const [gameDate, setGameDate] = useState(null)
 
   useEffect(() => {
     const root = document.documentElement
@@ -90,6 +94,7 @@ function App() {
         const response = await fetch('/tournaments/calendar')
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const calendar = await response.json()
+        setGameDate({ year: calendar.current_year, month: calendar.current_month })
         setActiveTournamentName(calendar.active_tournament?.name || null)
         setTransferLockName(
           calendar.active_tournament?.status === 'active'
@@ -156,6 +161,7 @@ function App() {
       const calendarRes = await fetch('/tournaments/calendar')
       if (calendarRes.ok) {
         const calendar = await calendarRes.json()
+        setGameDate({ year: calendar.current_year, month: calendar.current_month })
         setActiveTournamentName(calendar.active_tournament?.name || null)
         setTransferLockName(
           calendar.active_tournament?.status === 'active'
@@ -341,6 +347,35 @@ function App() {
     return `${players.find((p) => p.id === playerId)?.player || 'Player'} released.`
   }
 
+  const handleTransferList = async (player) => {
+    if (transferLockName) {
+      throw new Error(`Transfers are locked while your team is participating in ${transferLockName}.`)
+    }
+    const isListed = Boolean(player.is_transfer_listed)
+    const response = await fetch(`/players/${player.id}/transfer-list`, {
+      method: isListed ? 'DELETE' : 'POST',
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.detail || 'Unable to update transfer listing')
+    }
+
+    setActivePlayer(data)
+    if (!isListed) {
+      const offersRes = await fetch('/ai-buyouts/generate', { method: 'POST' })
+      if (!offersRes.ok) {
+        const errorData = await offersRes.json().catch(() => ({}))
+        throw new Error(`Player listed, but offers could not be generated: ${errorData.detail || `HTTP ${offersRes.status}`}`)
+      }
+    }
+
+    await refreshAllData()
+    await refreshBuyoutOffers()
+    return isListed
+      ? `${player.player} removed from the transfer list.`
+      : `${player.player} listed for transfer. AI teams with a role need and a similar ranking can make offers.`
+  }
+
   const handleModalAction = async (player, customOfferAmount = null) => {
     setModalStatus('Working...')
     setModalSubmitting(true)
@@ -467,7 +502,7 @@ function App() {
       {/* AI buyout inbox bell — only show when a manager exists */}
       {manager && (
 
-        <div style={{ position: 'fixed', top: '14px', right: '20px', zIndex: 950 }}>
+        <div className="inbox-dock">
           <AIBuyoutInbox
             offers={aiBuyoutOffers}
             transferLockName={transferLockName}
@@ -475,11 +510,19 @@ function App() {
           />
         </div>
       )}
-      <div className="app">
+      <div className={`app ${activeTab === 'tournaments' ? 'app-tournaments' : ''}`}>
         {!manager ? (
           <CareerStart onStart={handleCareerStart} />
         ) : (
           <>
+            <div className="page-heading">
+              <div>
+                <span className="eyebrow">YOUR CAREER. YOUR LEGACY.</span>
+                <h1>{{ home: 'Manager headquarters', manage: 'Build a winning squad', tournaments: 'The road to the trophy', top20: 'The best in the game', teams: 'Explore the competition', players: 'Find your next star' }[activeTab]}</h1>
+                <p>{{ home: 'Every great team starts with a plan. Make your next move.', manage: 'Fine-tune your roster, develop talent, and shape your playstyle.', tournaments: 'Follow the calendar and take your team to the biggest stages.', top20: 'A season of performances. A place among the elite.', teams: 'Scout the clubs and discover who you are up against.', players: 'Scout talent, compare ratings, and build your shortlist.' }[activeTab]}</p>
+              </div>
+              {gameDate && <div className="season-chip"><span className="status-dot" />{new Date(gameDate.year, gameDate.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>}
+            </div>
             {activeTab === 'players' && (
               <div className="toolbar">
                 <div className="search-box">
@@ -520,8 +563,9 @@ function App() {
             <div className="tab-panel">
               {activeTab === 'home' && (
                 <div className="home-grid">
-                  <div className="home-card">
-                    <h2>Welcome, {manager.name}</h2>
+                  <div className="home-card career-overview">
+                    <span className="eyebrow">THE NEXT CHAPTER</span>
+                    <h2>Welcome back, {manager.name}.</h2>
                     <p>Build your team, choose a club, and manage your career.</p>
                     <div className="home-stats">
                       <div>
@@ -537,9 +581,14 @@ function App() {
                         <strong>{selectedTeam?.name ?? 'None'}</strong>
                       </div>
                     </div>
+                    <div className="career-quick-actions">
+                      <button className="btn-primary" onClick={() => setActiveTab(selectedTeam ? 'manage' : 'teams')}>{selectedTeam ? 'Manage squad' : 'Explore teams'} <span aria-hidden="true">↗</span></button>
+                      <button className="btn-secondary" onClick={() => setActiveTab('tournaments')}>View calendar <span aria-hidden="true">→</span></button>
+                    </div>
+                    <div className="career-decoration" aria-hidden="true"><span /> <span /> <span /></div>
                   </div>
 
-                  <div className="home-card">
+                  <div className="home-card club-directory">
                     <h3>Choose your team</h3>
                     <p>Select a squad to manage from the available clubs below.</p>
                     <div className="team-selection-grid">
@@ -605,6 +654,16 @@ function App() {
                           id="subtab-formation"
                         >Formation</button>
                         <button
+                          className={`manage-subtab ${manageSubTab === 'develop' ? 'active' : ''}`}
+                          onClick={() => setManageSubTab('develop')}
+                          id="subtab-training"
+                        >Develop</button>
+                        <button
+                          className={`manage-subtab ${manageSubTab === 'training' ? 'active' : ''}`}
+                          onClick={() => setManageSubTab('training')}
+                          id="subtab-form-training"
+                        >Training</button>
+                        <button
                           className={`manage-subtab ${manageSubTab === 'transfers' ? 'active' : ''}`}
                           onClick={() => setManageSubTab('transfers')}
                           id="subtab-transfers"
@@ -633,6 +692,23 @@ function App() {
                       {/* FORMATION SUB-TAB: Assign roles + map-wise formations */}
                       {selectedTeam && manageSubTab === 'formation' && (
                         <TeamFormation team={selectedTeam} onSaved={refreshAllData} />
+                      )}
+
+                      {/* DEVELOP SUB-TAB: Attribute and overall development */}
+                      {selectedTeam && manageSubTab === 'develop' && (
+                        <PlayerTraining
+                          key={selectedTeam.id}
+                          team={selectedTeam}
+                          gameDate={gameDate}
+                          onSaved={refreshAllData}
+                        />
+                      )}
+
+                      {selectedTeam && manageSubTab === 'training' && (
+                        <PlayerFormTraining
+                          team={selectedTeam}
+                          onSaved={refreshAllData}
+                        />
                       )}
 
                       {/* MANAGE/TRANSFERS SUB-TAB: Current roster with release + market */}
@@ -839,6 +915,7 @@ function App() {
                   manager={manager}
                   selectedTeam={selectedTeam}
                   onUpdateManager={setManager}
+                  onRefreshPlayers={refreshAllData}
                   onActiveTournamentChange={setActiveTournamentName}
                   onTransferLockChange={setTransferLockName}
                 />
@@ -883,6 +960,17 @@ function App() {
         negotiation={activeNegotiation}
         getTeamName={getTeamName}
         transferLockName={transferLockName}
+        onTransferList={async (player) => {
+          setModalStatus('Updating transfer listing…')
+          setModalSubmitting(true)
+          try {
+            setModalStatus(await handleTransferList(player))
+          } catch (err) {
+            setModalStatus(err.message || 'Unable to update transfer listing')
+          } finally {
+            setModalSubmitting(false)
+          }
+        }}
       />
     </>
   )

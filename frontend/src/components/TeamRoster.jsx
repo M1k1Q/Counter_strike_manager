@@ -23,12 +23,6 @@ function TeamRoster({ team, searchQuery }) {
 
   const totalValue = players.reduce((sum, p) => sum + (p.price || 0), 0)
 
-  const topIglPlayerId = players.reduce((bestId, p) => {
-    if (bestId === null) return p.id
-    const bestScore = players.find(player => player.id === bestId)?.igl_score || 0
-    return (p.igl_score || 0) > bestScore ? p.id : bestId
-  }, null)
-
   const starting = players.filter(p => p.is_active_roster)
   const bench    = players.filter(p => !p.is_active_roster)
 
@@ -39,7 +33,7 @@ function TeamRoster({ team, searchQuery }) {
         <tr className={p.is_active_roster ? 'active-roster-row' : ''}>
           <td className="player-name">
             {p.player}
-            {p.id === topIglPlayerId && <span className="igl-tag">IGL</span>}
+            {p.is_igl && <span className="igl-tag">IGL</span>}
           </td>
           <td>
             <span className={`role-badge ${displayRole.toLowerCase().split(' ')[0] || 'default'}`}>
@@ -54,6 +48,7 @@ function TeamRoster({ team, searchQuery }) {
           <div className="stat-bars">
             <StatBar label="Firepower" value={p.firepower} />
             <StatBar label="Utility"   value={p.utility} />
+            <StatBar label="IGL %" value={p.igl_score} />
             <StatBar label="Impact"    value={p.impact} />
             <StatBar label="Clutching" value={p.clutching} />
           </div>

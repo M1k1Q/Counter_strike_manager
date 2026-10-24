@@ -99,13 +99,20 @@ function LoginPage({ onLoginSuccess }) {
 
   return (
     <div className="auth-wrapper fade-in">
+      <div className="auth-intro">
+        <span className="eyebrow">COUNTER-STRIKE · MANAGEMENT</span>
+        <h1>Great teams.<br />Greater <span>ambitions.</span></h1>
+        <p>Find the talent. Call the shots. Build a legacy that lasts beyond the final round.</p>
+        <div className="auth-pillars"><span>01 / Build your roster</span><span>02 / Master your tactics</span><span>03 / Chase the trophy</span></div>
+        <div className="auth-emblem" aria-hidden="true">CS<span>MANAGER</span></div>
+      </div>
       <Card className="auth-card-shadcn">
         <CardHeader className="auth-header">
           <div className="auth-badge">
-            <span className="auth-badge-icon">⚡</span> CS MANAGER AUTH
+            <span className="auth-badge-icon">⚡</span> MANAGER ACCESS
           </div>
           <CardTitle>
-            {isRegister ? 'Create Your Account' : 'Manager Authentication'}
+            {isRegister ? 'Create Your Account' : 'Welcome back'}
           </CardTitle>
           <CardDescription className="auth-subtitle">
             {isRegister

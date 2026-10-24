@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app import models
+from app.domain.player_roles import base_role, playing_role
 
 
 class RosterService:
@@ -12,7 +13,7 @@ class RosterService:
         for player in team.players:
             if player.is_igl:
                 roles_count["igl"] += 1
-            normalized_role = self._normalize_role(player.role)
+            normalized_role = self._normalize_role(playing_role(player))
             if normalized_role in roles_count:
                 roles_count[normalized_role] += 1
         return {"team_name": team.name, "team_id": team.id, "roles_count": roles_count}
@@ -26,6 +27,8 @@ class RosterService:
         max_score = float("-inf")
         for player in players:
             player.is_igl = False
+            player.role = base_role(player.role)
+            player.selected_role = base_role(player.selected_role)
             score = player.igl_score or 0.0
             if score > max_score:
                 max_score = score
@@ -33,9 +36,6 @@ class RosterService:
 
         if best_igl:
             best_igl.is_igl = True
-            current_role = best_igl.role or ""
-            if "igl" not in current_role.lower():
-                best_igl.role = f"{current_role} igl".strip()
 
         self.db.commit()
         return best_igl

@@ -98,7 +98,7 @@ class TestRosterAnalysis(unittest.TestCase):
         # Should deterministically pick p2 or p3. Our implementation just uses > so it picks the first one it sees (p2).
         self.assertEqual(best_igl.id, 2)
         self.assertTrue(best_igl.is_igl)
-        self.assertIn("igl", best_igl.role)
+        self.assertEqual(best_igl.role, "support")
         
     def test_no_role_player(self):
         team = models.Team(id=1, name="No Role Team")

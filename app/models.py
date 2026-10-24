@@ -34,9 +34,19 @@ class Player(Base):
     is_igl         = Column(Boolean, default=False)            # designated team IGL?
     is_active_roster = Column(Boolean, default=False)          # true if in starting 5
     selected_role  = Column(String(30), nullable=True)         # manager-assigned role
+    is_transfer_listed = Column(Boolean, default=False, nullable=False)
 
     #overall ingame rating
     Rating = Column(Integer , nullable=True)
+
+    potential = Column("Potential", Integer, nullable=True)
+    age = Column("Age", Integer, nullable=False, default=20)
+    form = Column(Float, nullable=False, default=1.0)
+    training_form_bonus = Column(Float, nullable=False, default=0.0)
+    last_trained_year = Column(Integer, nullable=True)
+    last_trained_month = Column(Integer, nullable=True)
+    training_points_used = Column(Float, nullable=False, default=0.0)
+
 
     @property
     def price(self) -> int:
@@ -434,3 +444,20 @@ class YearEndPlayerArchive(Base):
     rating      = Column(Float, nullable=False)
     mvp_count   = Column(Integer, nullable=False)
     evp_count   = Column(Integer, nullable=False)
+
+
+class UserTeamYearlyPlayerRating(Base):
+    __tablename__ = "user_team_yearly_player_ratings"
+    __table_args__ = (
+        UniqueConstraint("year", "team_id", "player_id", name="uq_user_team_yearly_player_rating"),
+    )
+
+    id          = Column(Integer, primary_key=True, index=True)
+    year        = Column(Integer, nullable=False, index=True)
+    team_id     = Column(Integer, nullable=False)
+    team_name   = Column(String(100), nullable=False)
+    player_id   = Column(Integer, nullable=False)
+    player_name = Column(String(60), nullable=False)
+    maps_played = Column(Integer, nullable=False)
+    rating      = Column(Float, nullable=False)
+    potential   = Column(Integer, nullable=False)

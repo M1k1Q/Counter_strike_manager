@@ -106,6 +106,8 @@ def seed_database():
                     is_active = True
                     team_active_roster_count[team_id] = current_count + 1
 
+            rating = calculate_rating(row, team_rank, max_rank=max_team_rank)
+            age = _f(row, "Age")
             db_player = models.Player(
                 player         = str(row["Player"]),
                 team_id        = team_id,
@@ -128,8 +130,10 @@ def seed_database():
                 igl_score      = _f(row, "igl_score")   or 0.0,
                 is_igl         = bool(row.get("is_igl", False)),
                 is_active_roster = is_active,
-                #calculating ingame rating based on stats out of 100, role and team ranking
-                Rating         = calculate_rating(row, team_rank, max_rank=max_team_rank)
+                Rating         = rating,
+                potential      = rating,
+                age            = int(age) if age is not None else 20,
+                form           = 1.0,
             )
             db.add(db_player)
 

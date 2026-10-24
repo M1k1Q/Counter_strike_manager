@@ -18,6 +18,7 @@ router = APIRouter(prefix="/ai-buyouts", tags=["ai-buyouts"])
 
 MAX_ROUNDS = 3
 AI_CEILING_MULTIPLIER = 2.5
+TRANSFER_RANK_RANGE = 10
 
 
 class AIBuyoutOfferResponse(BaseModel):
@@ -46,15 +47,28 @@ def _execute_sale(db: Session, offer: models.AIBuyoutOffer, sold_for: int) -> No
     manager = db.query(models.Manager).first()
     if not manager:
         raise HTTPException(status_code=404, detail="No active manager")
+    if offer.player.team_id != manager.team_id:
+        raise HTTPException(status_code=409, detail="Player is no longer on your team")
+    if (offer.ai_team.budget or 0) < sold_for:
+        raise HTTPException(status_code=409, detail="AI team can no longer afford this offer")
 
     ensure_transfers_unlocked(db, manager.team_id, offer.ai_team_id)
     manager.budget += sold_for
     offer.ai_team.budget -= sold_for
     add_player_to_ai_roster(db, offer.ai_team, offer.player)
+    offer.player.is_transfer_listed = False
 
     offer.status = "accepted"
     offer.current_offer = sold_for
     offer.updated_at = datetime.utcnow()
+    competing_offers = db.query(models.AIBuyoutOffer).filter(
+        models.AIBuyoutOffer.player_id == offer.player_id,
+        models.AIBuyoutOffer.id != offer.id,
+        models.AIBuyoutOffer.status == "pending",
+    ).all()
+    for competing_offer in competing_offers:
+        competing_offer.status = "collapsed"
+        competing_offer.updated_at = datetime.utcnow()
 
 
 def _build_response(offer: models.AIBuyoutOffer) -> dict:
@@ -74,6 +88,39 @@ def _build_response(offer: models.AIBuyoutOffer) -> dict:
     }
 
 
+def _listed_player_role(player: models.Player) -> str | None:
+    assigned_role = (player.selected_role or "").lower()
+    for role in ("awper", "entry", "support", "lurker"):
+        if role in assigned_role:
+            return role
+    if "igl" in assigned_role:
+        return "igl"
+
+    player_role = (player.role or "").lower()
+    for role in ("awper", "entry", "support", "lurker"):
+        if role in player_role:
+            return role
+    if player.is_igl or "igl" in player_role:
+        return "igl"
+    return None
+
+
+def _team_needs_role(db: Session, team: models.Team, role: str) -> bool:
+    roster = db.query(models.Player).filter(models.Player.team_id == team.id).all()
+    return not any(
+        _listed_player_role(player) == role
+        or (
+            role == "igl"
+            and (
+                player.is_igl
+                or "igl" in (player.selected_role or "").lower()
+                or "igl" in (player.role or "").lower()
+            )
+        )
+        for player in roster
+    )
+
+
 @router.post("/generate")
 def generate_ai_buyout_offers(db: Session = Depends(get_db)):
     manager = db.query(models.Manager).first()
@@ -85,39 +132,57 @@ def generate_ai_buyout_offers(db: Session = Depends(get_db)):
     if manager_team_id in locked_team_ids:
         return {"message": "Transfers are locked during your team's active tournament", "generated": 0}
 
-    manager_players = db.query(models.Player).filter(models.Player.team_id == manager_team_id).all()
-    if not manager_players:
-        return {"message": "Manager's team has no players", "generated": 0}
+    manager_team = db.query(models.Team).filter(models.Team.id == manager_team_id).first()
+    if not manager_team:
+        return {"message": "Manager's team could not be found", "generated": 0}
 
-    already_pending_player_ids = {
-        row.player_id
-        for row in db.query(models.AIBuyoutOffer.player_id).filter(models.AIBuyoutOffer.status == "pending").all()
+    listed_players = db.query(models.Player).filter(
+        models.Player.team_id == manager_team_id,
+        models.Player.is_transfer_listed.is_(True),
+    ).all()
+    if not listed_players:
+        return {"message": "Manager's team has no transfer-listed players", "generated": 0}
+
+    already_pending_pairs = {
+        (row.player_id, row.ai_team_id)
+        for row in db.query(
+            models.AIBuyoutOffer.player_id,
+            models.AIBuyoutOffer.ai_team_id,
+        ).filter(models.AIBuyoutOffer.status == "pending").all()
     }
+    already_pending_team_ids = {team_id for _, team_id in already_pending_pairs}
 
-    ai_teams = db.query(models.Team).filter(models.Team.id != manager_team_id).all()
+    ai_teams = db.query(models.Team).filter(
+        models.Team.id != manager_team_id,
+        models.Team.ranking.isnot(None),
+    ).all()
 
     generated = 0
     for ai_team in ai_teams:
-        if ai_team.id in locked_team_ids:
+        if ai_team.id in locked_team_ids or ai_team.id in already_pending_team_ids:
             continue
 
-        if random.random() > 0.30:
+        if manager_team.ranking is None or abs(ai_team.ranking - manager_team.ranking) > TRANSFER_RANK_RANGE:
             continue
 
         ai_budget = ai_team.budget or 0
-        affordable_targets = [
-            player for player in manager_players
-            if player.id not in already_pending_player_ids
-            and player.price is not None
-            and player.price <= ai_budget * 1.2
-        ]
+        affordable_targets = []
+        for player in listed_players:
+            role = _listed_player_role(player)
+            if (
+                role
+                and (player.id, ai_team.id) not in already_pending_pairs
+                and player.price <= ai_budget
+                and _team_needs_role(db, ai_team, role)
+            ):
+                affordable_targets.append(player)
 
         if not affordable_targets:
             continue
 
         target = max(affordable_targets, key=lambda player: player.Rating or 0)
         multiplier = round(random.uniform(1.0, 1.3), 2)
-        initial_offer = int(target.price * multiplier)
+        initial_offer = min(int(target.price * multiplier), ai_budget)
 
         new_offer = models.AIBuyoutOffer(
             player_id=target.id,
@@ -128,7 +193,7 @@ def generate_ai_buyout_offers(db: Session = Depends(get_db)):
             status="pending",
         )
         db.add(new_offer)
-        already_pending_player_ids.add(target.id)
+        already_pending_pairs.add((target.id, ai_team.id))
         generated += 1
 
     db.commit()
@@ -176,6 +241,7 @@ def counter_offer(offer_id: int, body: CounterOfferBody, db: Session = Depends(g
     ensure_transfers_unlocked(db, manager.team_id if manager else None, offer.ai_team_id)
 
     ai_ceiling = int(offer.initial_offer * AI_CEILING_MULTIPLIER)
+    ai_ceiling = min(ai_ceiling, offer.ai_team.budget or 0)
     user_ask = body.counter_amount
 
     if user_ask <= 0:

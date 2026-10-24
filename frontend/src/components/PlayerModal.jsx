@@ -11,6 +11,7 @@ function PlayerModal({
   getTeamName,
   negotiation,
   transferLockName,
+  onTransferList,
 }) {
   const [offerAmount, setOfferAmount] = useState('')
   const [offerError, setOfferError] = useState(null)
@@ -130,6 +131,18 @@ function PlayerModal({
               <strong>{player.Rating ?? player.rating ?? player.overall_rating ?? 'N/A'}</strong>
             </div>
             <div>
+              <span>Age</span>
+              <strong>{player.age ?? 'N/A'}</strong>
+            </div>
+            <div>
+              <span>Potential</span>
+              <strong>{player.potential ?? 'N/A'}</strong>
+            </div>
+            <div>
+              <span>Form</span>
+              <strong>{player.form != null ? `${player.form.toFixed(2)}×` : '1.00×'}</strong>
+            </div>
+            <div>
               <span>Market Value</span>
               <strong>${basePrice.toLocaleString()}</strong>
             </div>
@@ -225,6 +238,16 @@ function PlayerModal({
           {negotiationDetails}
 
           <div className="modal-actions">
+            {isOnSelectedTeam && onTransferList && (
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => onTransferList(player)}
+                disabled={actionDisabled}
+              >
+                {player.is_transfer_listed ? 'Remove from transfer list' : 'List for transfer'}
+              </button>
+            )}
             <button
               className="btn-primary"
               type="button"

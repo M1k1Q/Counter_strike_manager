@@ -4,7 +4,9 @@ from typing import List, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 
 from app import models
+from app.domain.player_roles import base_role, playing_role
 from app.domain.enums import MatchFormats, MatchStatus
+from app.services.player_development_service import update_player_form
 
 CS_MAP_POOL = ["Mirage", "Inferno", "Nuke", "Dust II", "Anubis", "Ancient", "Train"]
 
@@ -18,6 +20,43 @@ class MatchEngine:
     def __init__(self, db: Session):
         self.db = db
 
+    @staticmethod
+    def _effective_player_rating(player: models.Player) -> float:
+        rating = player.Rating / 70.0 if player.Rating else player.overall_rating or 1.0
+        form = player.form if player.form is not None else 1.0
+        training_bonus = (player.training_form_bonus or 0.0) / 70.0
+        return (rating * form) + training_bonus
+
+    @staticmethod
+    def _role_fit_firepower_bonus(player: models.Player) -> int:
+        selected_role = (base_role(player.selected_role) or "").strip().lower()
+        if not selected_role:
+            return 0
+
+        classified_roles = set((player.role or "").lower().split())
+        return 1 if selected_role in classified_roles else -1
+
+    @classmethod
+    def _effective_firepower(cls, player: models.Player) -> float:
+        firepower = player.firepower if player.firepower is not None else 50.0
+        return max(0.0, min(100.0, firepower + cls._role_fit_firepower_bonus(player)))
+
+    @staticmethod
+    def _entry_skill_edge(player: models.Player) -> float:
+        """Give entry players equal, direct credit for opening duels and entrying.
+
+        Missing attributes are neutral; the edge ranges from -1 to +1 and
+        applies to the selected match role without changing the stored overall.
+        """
+        role = playing_role(player)
+        if "entry" not in role:
+            return 0.0
+        values = [
+            max(0.0, min(100.0, value if value is not None else 50.0))
+            for value in (player.opening, player.entrying)
+        ]
+        return (sum(values) / len(values) - 50.0) / 50.0
+
     def get_active_roster(self, team: models.Team) -> List[models.Player]:
         """Return the 5 active players of a team, falling back to top rated players."""
         players = list(team.players) if team.players else []
@@ -27,8 +66,7 @@ class MatchEngine:
 
         # If not exactly 5 active, pick top 5 by overall_rating / Rating
         def sort_key(p):
-            r = p.overall_rating or (p.Rating / 70.0 if p.Rating else 1.0)
-            return r
+            return self._effective_player_rating(p)
 
         sorted_players = sorted(players, key=sort_key, reverse=True)
         return sorted_players[:5]
@@ -48,16 +86,16 @@ class MatchEngine:
         has_awper = False
 
         for p in roster:
-            r = p.overall_rating or (p.Rating / 70.0 if p.Rating else 1.0)
+            r = self._effective_player_rating(p)
             ratings.append(r)
-            firepowers.append(p.firepower if p.firepower is not None else 50.0)
+            firepowers.append(self._effective_firepower(p))
             imp = p.impact if p.impact is not None else 1.0
             if imp > 10.0:
                 imp = imp / 50.0
             impacts.append(imp)
 
-            role = (p.selected_role or p.role or "").lower()
-            if p.is_igl or "igl" in role:
+            role = playing_role(p)
+            if p.is_igl:
                 has_igl = True
             if "awp" in role:
                 has_awper = True
@@ -68,6 +106,9 @@ class MatchEngine:
 
         # Baseline power centered around 100
         power = (avg_rating * 70.0) + (avg_fp * 0.2) + (avg_imp * 15.0)
+
+        # Entry execution affects round-win odds even at the overall ceiling.
+        power += 6.0 * sum(self._entry_skill_edge(p) for p in roster) / len(roster)
 
         # Synergy bonuses
         if has_igl:
@@ -167,18 +208,20 @@ class MatchEngine:
         # 2. Compute frag weight for each player
         weights = []
         for p in roster:
-            r = p.overall_rating or (p.Rating / 70.0 if p.Rating else 1.0)
+            r = self._effective_player_rating(p)
             base_r = max(0.65, r) ** 1.25
 
-            fp = p.firepower if p.firepower is not None else 50.0
-            fp_mult = 0.85 + (fp / 100.0) * 0.28
+            fp = self._effective_firepower(p)
+            # Aim matters for every role, including fragging supports. Keep 50
+            # neutral and let 0..100 span 0.65..1.35 of baseline kill weight.
+            fp_mult = 0.65 + (fp / 100.0) * 0.70
 
             imp = p.impact if p.impact is not None else 1.0
             if imp > 10.0:
                 imp = imp / 50.0
             imp_mult = 0.85 + max(-0.25, min(0.35, (imp - 1.0) * 0.26))
 
-            role = (p.selected_role or p.role or "").lower()
+            role = playing_role(p)
             role_mult = 1.0
             if "awp" in role:
                 role_mult = 1.10
@@ -187,12 +230,11 @@ class MatchEngine:
             elif "lurker" in role:
                 role_mult = 1.02
             elif "support" in role:
-                role_mult = 0.92
-            elif "igl" in role:
-                role_mult = 0.90
+                role_mult = 1.0
 
             form = random.lognormvariate(0, 0.12)
-            w = base_r * fp_mult * imp_mult * role_mult * form
+            entry_mult = 1.0 + 0.20 * self._entry_skill_edge(p)
+            w = base_r * fp_mult * imp_mult * role_mult * entry_mult * form
             weights.append(max(0.1, w))
 
         total_weight = sum(weights)
@@ -245,7 +287,7 @@ class MatchEngine:
 
         raw_deaths = []
         for i, p in enumerate(roster):
-            role = (p.selected_role or p.role or "").lower()
+            role = playing_role(p)
             role_mod = 0.0
             if "entry" in role:
                 role_mod = 1.5
@@ -303,7 +345,7 @@ class MatchEngine:
         for i, p in enumerate(roster):
             k = kills[i]
             d = deaths[i]
-            role = (p.selected_role or p.role or "").lower()
+            role = playing_role(p)
 
             # Assists: 2-8 typically, boosted by utility / support
             util = p.utility if p.utility is not None else 50.0
@@ -427,6 +469,7 @@ class MatchEngine:
         # Clear any existing partial maps/stats for this match
         self.db.query(models.PlayerMatchStat).filter(models.PlayerMatchStat.match_id == match.id).delete()
         self.db.query(models.MapResult).filter(models.MapResult.match_id == match.id).delete()
+        match_player_ratings: dict[int, list[float]] = {}
 
         while t1_maps < maps_needed and t2_maps < maps_needed:
             map_name = available_maps.pop(0) if available_maps else "Mirage"
@@ -452,6 +495,7 @@ class MatchEngine:
 
             # Persist PlayerMatchStat for team 1
             for s in map_data["stats1"]:
+                match_player_ratings.setdefault(s["player"].id, []).append(s["rating"])
                 db_stat = models.PlayerMatchStat(
                     match_id=match.id,
                     map_result_id=db_map.id,
@@ -468,6 +512,7 @@ class MatchEngine:
 
             # Persist PlayerMatchStat for team 2
             for s in map_data["stats2"]:
+                match_player_ratings.setdefault(s["player"].id, []).append(s["rating"])
                 db_stat = models.PlayerMatchStat(
                     match_id=match.id,
                     map_result_id=db_map.id,
@@ -489,6 +534,16 @@ class MatchEngine:
         match.team2_score = t2_maps
         match.winner_id = team1.id if t1_maps > t2_maps else team2.id
         match.status = MatchStatus.COMPLETED
+        players_by_id = {
+            player.id: player
+            for player in self.db.query(models.Player)
+            .filter(models.Player.id.in_(match_player_ratings))
+            .all()
+        }
+        for player_id, ratings in match_player_ratings.items():
+            player = players_by_id.get(player_id)
+            if player:
+                update_player_form(player, sum(ratings) / len(ratings))
 
         self.db.commit()
         self.db.refresh(match)

@@ -2,6 +2,16 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.rating import calculate_rating
+from app.services.player_development_service import (
+    apply_yearly_progression,
+    calculate_yearly_player_potential,
+)
+
+__all__ = [
+    "migrate_player_ratings",
+    "calculate_yearly_player_potential",
+    "apply_yearly_progression",
+]
 
 RANK_SCALED_RATING_MIGRATION = "rank_scaled_player_ratings_v2"
 

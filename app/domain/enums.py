@@ -51,6 +51,7 @@ class TournamentStatus(str, Enum):
 
 class MatchStage(str, Enum):
     GROUP_STAGE = "group_stage"
+    ROUND_OF_16 = "round_of_16"
     QUARTER_FINAL = "quarter_final"
     SEMI_FINAL = "semi_final"
     GRAND_FINAL = "grand_final"
@@ -59,4 +60,4 @@ class MatchStage(str, Enum):
 class MatchStatus(str, Enum):
     SCHEDULED = "scheduled"
     IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
+    COMPLETED = "completed"

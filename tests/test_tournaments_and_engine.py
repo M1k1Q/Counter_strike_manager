@@ -4,12 +4,21 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app import models
-from app.api.routes.tournaments import get_tournament_history, get_yearly_top_20
+from app.api.routes.tournaments import (
+    get_pre_match_lineup,
+    get_tournament_history,
+    get_yearly_top_20,
+)
+from app.api.routes.players import get_user_team_yearly_ratings
 from app.api.schemas.tournament_schema import YearEndTop20Response
 from app.domain.enums import MatchFormats, TournamentTier, TournamentStatus, MatchStage, MatchStatus
 from app.services.match_engine import MatchEngine
 from app.services.transfer_service import transfer_lock_name
-from app.services.tournament_service import TournamentService
+from app.services.tournament_service import (
+    TournamentService,
+    YEAR_END_MIN_MAPS,
+    _year_end_ranking_score,
+)
 
 
 @pytest.fixture
@@ -136,6 +145,68 @@ def test_match_engine_frag_distribution(test_db):
 
     top_frag_rate = star_top_frag_count / total_maps_tested
     assert top_frag_rate >= 0.60, f"Star player top frag rate was {top_frag_rate:.2f}, expected >= 0.60"
+
+
+def test_match_rating_uses_training_bonus_without_changing_player_rating(test_db):
+    engine = MatchEngine(test_db)
+    player = test_db.query(models.Player).filter_by(team_id=1).first()
+    player.Rating = 80
+    player.training_form_bonus = 2.0
+    player.form = 1.2
+
+    assert engine._effective_player_rating(player) == pytest.approx((80 / 70) * 1.2 + (2 / 70))
+    assert player.Rating == 80
+
+
+def test_pre_match_lineup_only_exposes_training_bonus_for_user_roster(test_db):
+    user_player = test_db.query(models.Player).filter_by(team_id=1).first()
+    user_player.form = 1.08
+    user_player.training_form_bonus = 1.5
+    opponent_player = test_db.query(models.Player).filter_by(team_id=2).first()
+    opponent_player.form = 0.92
+    opponent_player.training_form_bonus = 2.0
+    match = models.Match(team1_id=1, team2_id=2, status=MatchStatus.SCHEDULED.value)
+    test_db.add(match)
+    test_db.commit()
+
+    lineup = get_pre_match_lineup(match.id, test_db)
+
+    assert lineup.user_team.id == 1
+    assert lineup.opponent_team.id == 2
+    assert len(lineup.user_team.players) == 5
+    assert len(lineup.opponent_team.players) == 5
+    assert lineup.user_team.players[0].training_form_bonus == 1.5
+    assert lineup.user_team.players[0].form == pytest.approx(1.08)
+    assert lineup.opponent_team.players[0].form == pytest.approx(0.92)
+    assert not hasattr(lineup.opponent_team.players[0], "training_form_bonus")
+
+
+def test_formation_role_fit_is_a_temporary_firepower_modifier(test_db):
+    engine = MatchEngine(test_db)
+    player = test_db.query(models.Player).filter_by(team_id=1).first()
+    base_firepower = player.firepower
+    base_overall_rating = player.overall_rating
+    base_rating = player.Rating
+    player.role = "entry igl"
+    player.is_igl = True
+
+    player.selected_role = None
+    neutral_power = engine.compute_team_power(player.team, [player])
+    player.selected_role = "Entry"
+    assert engine._role_fit_firepower_bonus(player) == 1
+    assert engine._effective_firepower(player) == min(100.0, base_firepower + 1)
+    assert engine.compute_team_power(player.team, [player]) == pytest.approx(neutral_power + 0.2)
+
+    player.selected_role = "Lurker"
+    assert engine._role_fit_firepower_bonus(player) == -1
+    assert engine._effective_firepower(player) == max(0.0, base_firepower - 1)
+    assert engine.compute_team_power(player.team, [player]) == pytest.approx(neutral_power - 0.2)
+
+    player.selected_role = None
+    assert engine._role_fit_firepower_bonus(player) == 0
+    assert engine._effective_firepower(player) == base_firepower
+    assert player.overall_rating == base_overall_rating
+    assert player.Rating == base_rating
 
 
 def test_series_simulation_bo3(test_db):
@@ -539,6 +610,54 @@ def test_calendar_skips_months_without_scheduled_tournaments(test_db):
     assert state.active_tournament.month == 5
 
 
+def _add_completed_series_maps(
+    db,
+    *,
+    tournament_id: int,
+    team1_id: int,
+    team2_id: int,
+    map_count: int,
+    rating_for_player,
+    stage=MatchStage.GRAND_FINAL.value,
+):
+    """Seed a completed match with map_count PlayerMatchStat rows per roster player."""
+    match = models.Match(
+        tournament_id=tournament_id,
+        stage=stage,
+        status=MatchStatus.COMPLETED.value,
+        team1_id=team1_id,
+        team2_id=team2_id,
+        winner_id=team1_id,
+    )
+    db.add(match)
+    db.flush()
+
+    for map_number in range(1, map_count + 1):
+        map_result = models.MapResult(
+            match_id=match.id,
+            map_number=map_number,
+            map_name="Mirage",
+            winner_id=team1_id,
+        )
+        db.add(map_result)
+        db.flush()
+        for team_id in (team1_id, team2_id):
+            team = db.query(models.Team).filter_by(id=team_id).one()
+            for player in team.players:
+                db.add(models.PlayerMatchStat(
+                    match_id=match.id,
+                    map_result_id=map_result.id,
+                    player_id=player.id,
+                    team_id=team_id,
+                    kills=25,
+                    deaths=15,
+                    assists=6,
+                    adr=90.0,
+                    rating=rating_for_player(player),
+                ))
+    return match
+
+
 def test_year_end_archive_tracks_awards_and_compacts_match_stats(test_db):
     tournament = models.Tournament(
         name="Year-End Test Event",
@@ -564,40 +683,15 @@ def test_year_end_archive_tracks_awards_and_compacts_match_stats(test_db):
             placement="Runner-Up",
         ),
     ])
-    final = models.Match(
+    superstar = test_db.query(models.Player).filter_by(team_id=1).first()
+    _add_completed_series_maps(
+        test_db,
         tournament_id=tournament.id,
-        stage=MatchStage.GRAND_FINAL.value,
-        status=MatchStatus.COMPLETED.value,
         team1_id=1,
         team2_id=2,
-        winner_id=1,
+        map_count=20,
+        rating_for_player=lambda player: 1.40 if player.id == superstar.id else 1.20,
     )
-    test_db.add(final)
-    test_db.flush()
-    map_result = models.MapResult(
-        match_id=final.id,
-        map_number=1,
-        map_name="Mirage",
-        winner_id=1,
-    )
-    test_db.add(map_result)
-    test_db.flush()
-
-    superstar = test_db.query(models.Player).filter_by(team_id=1).first()
-    for team_id in (1, 2):
-        team = test_db.query(models.Team).filter_by(id=team_id).one()
-        for player in team.players:
-            test_db.add(models.PlayerMatchStat(
-                match_id=final.id,
-                map_result_id=map_result.id,
-                player_id=player.id,
-                team_id=team_id,
-                kills=25,
-                deaths=15,
-                assists=6,
-                adr=90.0,
-                rating=1.40 if player.id == superstar.id else 1.20,
-            ))
     test_db.add(models.CalendarState(
         current_year=2026,
         current_month=12,
@@ -640,6 +734,209 @@ def test_year_end_archive_tracks_awards_and_compacts_match_stats(test_db):
     assert test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).count() == 10
 
 
+def test_year_end_tracks_only_user_team_ratings_and_grows_potential_after_109(test_db):
+    tournament = models.Tournament(
+        name="User Team Development Event",
+        tier=TournamentTier.B_TIER.value,
+        year=2026,
+        month=12,
+        status=TournamentStatus.COMPLETED.value,
+        champion_id=2,
+    )
+    test_db.add(tournament)
+    test_db.flush()
+    user_players = test_db.query(models.Player).filter_by(team_id=1).all()
+    starting_ratings = {player.id: player.Rating for player in user_players}
+    _add_completed_series_maps(
+        test_db,
+        tournament_id=tournament.id,
+        team1_id=2,
+        team2_id=1,
+        map_count=3,
+        rating_for_player=lambda player: 1.10 if player.team_id == 1 else 1.40,
+    )
+    test_db.commit()
+
+    TournamentService(test_db).archive_year_end_stats(2026)
+    archived = get_user_team_yearly_ratings(test_db)
+
+    assert len(archived) == 5
+    assert {entry.team_id for entry in archived} == {1}
+    assert {entry.player_id for entry in archived} == {player.id for player in user_players}
+    assert all(entry.rating == pytest.approx(1.10) for entry in archived)
+    assert all(entry.maps_played == 3 for entry in archived)
+    assert all(entry.potential > starting_ratings[entry.player_id] for entry in archived)
+
+    TournamentService(test_db).archive_year_end_stats(2026)
+    assert len(get_user_team_yearly_ratings(test_db)) == 5
+
+
+def test_year_end_top_20_eligibility_and_sample_size(test_db):
+    full_campaign = test_db.query(models.Player).filter_by(team_id=1).first()
+    short_spike = test_db.query(models.Player).filter_by(team_id=3).first()
+    a_plus_event = models.Tournament(
+        name="A-Tier Campaign",
+        tier=TournamentTier.A_TIER.value,
+        year=2026,
+        month=1,
+        status=TournamentStatus.COMPLETED.value,
+    )
+    short_event = models.Tournament(
+        name="S-Tier Spike",
+        tier=TournamentTier.S_TIER.value,
+        year=2026,
+        month=2,
+        status=TournamentStatus.COMPLETED.value,
+    )
+    test_db.add_all([a_plus_event, short_event])
+    test_db.flush()
+
+    _add_completed_series_maps(
+        test_db,
+        tournament_id=a_plus_event.id,
+        team1_id=1,
+        team2_id=2,
+        map_count=YEAR_END_MIN_MAPS,
+        rating_for_player=lambda player: 1.30 if player.id == full_campaign.id else 1.20,
+    )
+    _add_completed_series_maps(
+        test_db,
+        tournament_id=short_event.id,
+        team1_id=3,
+        team2_id=4,
+        map_count=3,
+        rating_for_player=lambda player: 1.98 if player.id == short_spike.id else 1.20,
+    )
+
+    service = TournamentService(test_db)
+    service.archive_year_end_stats(2026)
+
+    archived = {
+        row.player_id: row
+        for row in test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).all()
+    }
+    assert full_campaign.id in archived
+    assert archived[full_campaign.id].rating == 1.30
+    assert short_spike.id not in archived
+    assert _year_end_ranking_score(1.30, YEAR_END_MIN_MAPS) > _year_end_ranking_score(1.98, 3)
+
+
+def test_year_end_top_20_ignores_b_and_c_tiers_but_keeps_progression_totals(
+    test_db, monkeypatch
+):
+    a_plus_player = test_db.query(models.Player).filter_by(team_id=1).first()
+    lower_tier_star = test_db.query(models.Player).filter_by(team_id=3).first()
+    tournaments = [
+        models.Tournament(
+            name="A-Tier Event",
+            tier=TournamentTier.A_TIER.value,
+            year=2026,
+            month=1,
+            status=TournamentStatus.COMPLETED.value,
+        ),
+        models.Tournament(
+            name="B-Tier Event",
+            tier=TournamentTier.B_TIER.value,
+            year=2026,
+            month=2,
+            status=TournamentStatus.COMPLETED.value,
+        ),
+        models.Tournament(
+            name="C-Tier Event",
+            tier=TournamentTier.C_TIER.value,
+            year=2026,
+            month=3,
+            status=TournamentStatus.COMPLETED.value,
+        ),
+    ]
+    test_db.add_all(tournaments)
+    test_db.flush()
+
+    _add_completed_series_maps(
+        test_db,
+        tournament_id=tournaments[0].id,
+        team1_id=1,
+        team2_id=2,
+        map_count=YEAR_END_MIN_MAPS,
+        rating_for_player=lambda player: 1.20,
+    )
+    for tournament in tournaments[1:]:
+        _add_completed_series_maps(
+            test_db,
+            tournament_id=tournament.id,
+            team1_id=3,
+            team2_id=4,
+            map_count=15,
+            rating_for_player=lambda player: 1.98 if player.id == lower_tier_star.id else 1.20,
+        )
+
+    progression_totals = {}
+    monkeypatch.setattr(
+        "app.services.tournament_service.apply_yearly_progression",
+        lambda db, year, totals: progression_totals.update(totals),
+    )
+    TournamentService(test_db).archive_year_end_stats(2026)
+
+    archived_player_ids = {
+        row.player_id
+        for row in test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).all()
+    }
+    assert a_plus_player.id in archived_player_ids
+    assert lower_tier_star.id not in archived_player_ids
+    assert progression_totals[lower_tier_star.id]["maps_played"] == 30
+
+
+def test_year_end_sos_rewards_maps_against_top_20_teams(test_db):
+    lower_sos_player = test_db.query(models.Player).filter_by(team_id=1).first()
+    higher_sos_player = test_db.query(models.Player).filter_by(team_id=3).first()
+    outside_top_20 = models.Team(
+        name="Team 21",
+        ranking=21,
+        ranking_points=0,
+        budget=1_000_000,
+    )
+    event = models.Tournament(
+        name="SOS Test Event",
+        tier=TournamentTier.S_TIER.value,
+        year=2026,
+        month=1,
+        status=TournamentStatus.COMPLETED.value,
+    )
+    test_db.add_all([outside_top_20, event])
+    test_db.flush()
+
+    _add_completed_series_maps(
+        test_db,
+        tournament_id=event.id,
+        team1_id=1,
+        team2_id=outside_top_20.id,
+        map_count=YEAR_END_MIN_MAPS,
+        rating_for_player=lambda player: 1.20,
+    )
+    _add_completed_series_maps(
+        test_db,
+        tournament_id=event.id,
+        team1_id=3,
+        team2_id=2,
+        map_count=YEAR_END_MIN_MAPS,
+        rating_for_player=lambda player: 1.20,
+    )
+
+    TournamentService(test_db).archive_year_end_stats(2026)
+
+    archived = {
+        row.player_id: row
+        for row in test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).all()
+    }
+    assert (
+        archived[higher_sos_player.id].maps_played
+        == archived[lower_sos_player.id].maps_played
+        == YEAR_END_MIN_MAPS
+    )
+    assert archived[higher_sos_player.id].rating == archived[lower_sos_player.id].rating == 1.20
+    assert archived[higher_sos_player.id].rank < archived[lower_sos_player.id].rank
+
+
 def test_december_advance_finishes_bracket_before_archiving(test_db):
     tournament = models.Tournament(
         name="December Final",
@@ -669,7 +966,11 @@ def test_december_advance_finishes_bracket_before_archiving(test_db):
     assert test_db.query(models.TournamentPlayerStatArchive).filter_by(
         tournament_id=tournament.id
     ).count() > 0
-    assert test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).count() > 0
+    assert test_db.query(models.TournamentPlayerStatArchive).filter(
+        models.TournamentPlayerStatArchive.tournament_id == tournament.id,
+        models.TournamentPlayerStatArchive.maps_played >= YEAR_END_MIN_MAPS,
+    ).count() == 0
+    assert test_db.query(models.YearEndPlayerArchive).filter_by(year=2026).count() == 0
     assert test_db.query(models.PlayerMatchStat).filter(
         models.PlayerMatchStat.match_id.in_(
             test_db.query(models.Match.id).filter_by(tournament_id=tournament.id)

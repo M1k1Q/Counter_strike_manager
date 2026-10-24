@@ -4,7 +4,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app import models
-from app.api.routes.ai_buyouts import _execute_sale
+from app.api.routes.ai_buyouts import _execute_sale, generate_ai_buyout_offers
+from app.api.routes.players import list_player_for_transfer, remove_player_from_transfer_list
 from app.api.routes.teams import add_player_to_team
 from app.services.negotiation_service import NegotiationService
 from app.services.match_engine import MatchEngine
@@ -115,6 +116,76 @@ def test_ai_buyout_replaces_lowest_player_in_incoming_role_and_caps_roster(db):
     assert incoming_player.team_id == ai_team.id
     assert ai_roster[0].team_id is None
     assert sum(player.team_id == ai_team.id for player in db.query(models.Player).all()) == 5
+
+
+def test_manager_can_list_and_withdraw_a_player_and_their_pending_offers(db):
+    manager_team = models.Team(name="Manager Team", ranking=10)
+    other_team = models.Team(name="Other Team", ranking=20)
+    buyer = models.Team(name="Buyer", ranking=11)
+    db.add_all([manager_team, other_team, buyer])
+    db.flush()
+    db.add(models.Manager(name="Manager", team_id=manager_team.id, budget=1_000_000))
+    listed_player = make_player("Listed Player", manager_team.id, 80, "support")
+    other_player = make_player("Other Player", other_team.id, 80, "support")
+    db.add_all([listed_player, other_player])
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        list_player_for_transfer(other_player.id, db)
+    assert exc_info.value.status_code == 403
+
+    list_player_for_transfer(listed_player.id, db)
+    offer = models.AIBuyoutOffer(
+        player=listed_player,
+        ai_team=buyer,
+        current_offer=listed_player.price,
+        initial_offer=listed_player.price,
+        status="pending",
+    )
+    db.add(offer)
+    db.commit()
+
+    remove_player_from_transfer_list(listed_player.id, db)
+
+    assert listed_player.is_transfer_listed is False
+    assert offer.status == "withdrawn"
+
+
+def test_transfer_list_generates_role_and_rank_appropriate_competing_offers(db):
+    manager_team = models.Team(name="Manager", ranking=20, budget=1_000_000)
+    buyer_one = models.Team(name="Buyer One", ranking=12, budget=1_000_000)
+    buyer_two = models.Team(name="Buyer Two", ranking=29, budget=1_000_000)
+    outside_range = models.Team(name="Outside Range", ranking=31, budget=1_000_000)
+    role_filled = models.Team(name="Role Filled", ranking=18, budget=1_000_000)
+    db.add_all([manager_team, buyer_one, buyer_two, outside_range, role_filled])
+    db.flush()
+
+    listed_player = make_player("Listed Support", manager_team.id, 80, "support")
+    listed_player.is_transfer_listed = True
+    unlisted_player = make_player("Unlisted AWPer", manager_team.id, 99, "awper")
+    buyer_one_roster = make_player("Buyer One Entry", buyer_one.id, 70, "entry")
+    buyer_two_roster = make_player("Buyer Two Lurker", buyer_two.id, 70, "lurker")
+    outside_roster = make_player("Outside Entry", outside_range.id, 70, "entry")
+    covered_roster = make_player("Existing Support", role_filled.id, 70, "support")
+    db.add_all([
+        models.Manager(name="Manager", team_id=manager_team.id, budget=1_000_000),
+        listed_player,
+        unlisted_player,
+        buyer_one_roster,
+        buyer_two_roster,
+        outside_roster,
+        covered_roster,
+    ])
+    db.commit()
+
+    result = generate_ai_buyout_offers(db)
+    offers = db.query(models.AIBuyoutOffer).filter_by(status="pending").all()
+
+    assert result["generated"] == 2
+    assert {offer.player_id for offer in offers} == {listed_player.id}
+    assert {offer.ai_team_id for offer in offers} == {buyer_one.id, buyer_two.id}
+    assert all(offer.current_offer <= offer.ai_team.budget for offer in offers)
+    assert generate_ai_buyout_offers(db)["generated"] == 0
 
 
 def test_ranked_ai_team_replaces_transfer_loss_and_can_play_tournament(db):

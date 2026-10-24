@@ -1,20 +1,52 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './TournamentCalendar.css'
+import SeasonRecap from './SeasonRecap.jsx'
+import { completedSeasonYear } from './recapSequence.js'
 
 const MONTH_NAMES = [
   '', 'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ]
 
+function LineupTeam({ team, isUserTeam = false }) {
+  return (
+    <section className={`lineup-team ${isUserTeam ? 'user-lineup-team' : 'opponent-lineup-team'}`}>
+      <header className="lineup-team-header">
+        <span className="lineup-side-label">{isUserTeam ? 'Your lineup' : 'Opponent lineup'}</span>
+        <h4>{team.name}</h4>
+      </header>
+      <div className="lineup-player-list">
+        {team.players.map((player) => (
+          <article className="lineup-player" key={player.player_id}>
+            <strong className="lineup-player-name">{player.player_name}</strong>
+            <div className="lineup-player-details">
+              <span><small>Rating</small><b>{player.rating}</b></span>
+              <span><small>Form</small><b>{Number(player.form).toFixed(2)}×</b></span>
+              {isUserTeam && (
+                <span className="lineup-training-bonus">
+                  <small>Training</small>
+                  <b>+{Number(player.training_form_bonus || 0).toFixed(1)}</b>
+                </span>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function TournamentCalendar({
   manager,
   selectedTeam,
   onUpdateManager,
+  onRefreshPlayers,
   onActiveTournamentChange,
   onTransferLockChange,
 }) {
   const [calendarData, setCalendarData] = useState(null)
   const [eventHistory, setEventHistory] = useState([])
+  const [selectedCircuitYear, setSelectedCircuitYear] = useState('')
   const [selectedEventId, setSelectedEventId] = useState('')
   const [historyTournament, setHistoryTournament] = useState(null)
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -25,15 +57,22 @@ function TournamentCalendar({
   const [loading, setLoading] = useState(true)
   const [advancing, setAdvancing] = useState(false)
   const [calendarActionError, setCalendarActionError] = useState(null)
+  const [recapSeason, setRecapSeason] = useState(null)
+  const [recapError, setRecapError] = useState(null)
   const [simulatingMatchId, setSimulatingMatchId] = useState(null)
   const [simulatingAi, setSimulatingAi] = useState(false)
   const [selectedScoreboardMatch, setSelectedScoreboardMatch] = useState(null)
   const [activeScoreboardMapIndex, setActiveScoreboardMapIndex] = useState(0)
+  const [preMatch, setPreMatch] = useState(null)
+  const [preMatchLoading, setPreMatchLoading] = useState(false)
+  const [preMatchError, setPreMatchError] = useState(null)
+  const [playingPreMatch, setPlayingPreMatch] = useState(false)
   const [tournamentStats, setTournamentStats] = useState(null)
   const [statsLoading, setStatsLoading] = useState(false)
   const [statsTeamFilter, setStatsTeamFilter] = useState('all')
   const [statsStageFilter, setStatsStageFilter] = useState('all')
   const [statsAwardFilter, setStatsAwardFilter] = useState('all')
+  const circuitStripRef = useRef(null)
 
   const handleSelectEvent = async (event) => {
     const tournamentId = String(event.id)
@@ -150,10 +189,22 @@ function TournamentCalendar({
       .catch((err) => console.error('Failed to fetch tournament history:', err))
   }, [])
 
+  useEffect(() => {
+    const currentYear = calendarData?.current_year
+    const archiveYear = selectedCircuitYear || String(currentYear || '')
+    if (!currentYear || archiveYear === String(currentYear)) return
+
+    const circuitStrip = circuitStripRef.current
+    if (circuitStrip) {
+      circuitStrip.scrollTop = circuitStrip.scrollHeight
+    }
+  }, [calendarData?.current_year, eventHistory.length, selectedCircuitYear])
+
   const handleAdvanceMonth = async () => {
     try {
       setAdvancing(true)
       setCalendarActionError(null)
+      setRecapError(null)
       const endpoint = calendarData?.tournament_start_pending
         ? '/tournaments/calendar/start'
         : '/tournaments/calendar/advance'
@@ -162,6 +213,21 @@ function TournamentCalendar({
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
 
       setCalendarData(data)
+      const endedYear = completedSeasonYear(calendarData, data)
+      if (endedYear !== null) {
+        // The advance endpoint archives rankings before returning the new year.
+        // A recap-fetch failure must never retry the calendar mutation.
+        try {
+          const recapResponse = await fetch('/tournaments/yearly-top-20')
+          if (!recapResponse.ok) throw new Error(`HTTP ${recapResponse.status}`)
+          const seasons = await recapResponse.json()
+          const completedSeason = seasons.find(season => season.year === endedYear)
+          if (completedSeason?.players?.length) setRecapSeason(completedSeason)
+          else setRecapError(`The ${endedYear} season has no eligible Top 20 players to reveal.`)
+        } catch {
+          setRecapError('The season advanced successfully, but the Top 20 ceremony could not load. You can replay it from Yearly Top 20.')
+        }
+      }
       onActiveTournamentChange?.(data.active_tournament?.name || null)
       onTransferLockChange?.(
         data.active_tournament?.status === 'active'
@@ -198,12 +264,58 @@ function TournamentCalendar({
         setActiveScoreboardMapIndex(0)
         // Refresh tournament state
         await fetchCalendarData()
+        await onRefreshPlayers?.()
         fetchRankings()
       }
     } catch (err) {
       console.error('Failed to simulate match:', err)
     } finally {
       setSimulatingMatchId(null)
+    }
+  }
+
+  const openPreMatch = async (match) => {
+    if (isCompletedEvent || isSpectatorView || calendarData?.tournament_start_pending) return
+
+    setPreMatch({ match, lineup: null })
+    setPreMatchLoading(true)
+    setPreMatchError(null)
+    try {
+      const response = await fetch(`/tournaments/matches/${match.id}/lineup`)
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.detail || 'Unable to load match lineups')
+      setPreMatch({ match, lineup: data })
+    } catch (err) {
+      console.error('Failed to load pre-match lineup:', err)
+      setPreMatchError(err.message || 'Unable to load match lineups. Please try again.')
+    } finally {
+      setPreMatchLoading(false)
+    }
+  }
+
+  const playPreMatch = async () => {
+    if (!preMatch?.match?.id) return
+
+    try {
+      setPlayingPreMatch(true)
+      setPreMatchError(null)
+      const response = await fetch(`/tournaments/matches/${preMatch.match.id}/simulate`, {
+        method: 'POST',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.detail || 'Unable to play this match')
+
+      setSelectedScoreboardMatch(data)
+      setActiveScoreboardMapIndex(0)
+      setPreMatch(null)
+      await fetchCalendarData()
+      await onRefreshPlayers?.()
+      fetchRankings()
+    } catch (err) {
+      console.error('Failed to play match:', err)
+      setPreMatchError(err.message || 'Unable to play this match. Please try again.')
+    } finally {
+      setPlayingPreMatch(false)
     }
   }
 
@@ -229,18 +341,42 @@ function TournamentCalendar({
     setActiveScoreboardMapIndex(0)
   }
 
+  useEffect(() => {
+    if (!preMatch) return undefined
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape' && !playingPreMatch && !preMatchLoading) setPreMatch(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [preMatch, playingPreMatch, preMatchLoading])
+
   if (loading && !calendarData) {
     return <div className="loading-state">Loading Tournament Circuit & Calendar...</div>
   }
 
-  const activeTournament = selectedEventId
-    ? historyTournament
-    : calendarData?.active_tournament
   const circuitEvents = [...new Map([
     ...eventHistory,
     ...(calendarData?.season_tournaments || []),
   ].map((event) => [event.id, event])).values()]
     .sort((a, b) => a.year - b.year || a.month - b.month)
+  const circuitYears = [...new Set([
+    ...(calendarData?.current_year ? [calendarData.current_year] : []),
+    ...circuitEvents.map((event) => event.year),
+  ])].sort((a, b) => b - a)
+  const activeCircuitYear = String(
+    selectedCircuitYear || calendarData?.current_year || circuitYears[0] || ''
+  )
+  const visibleCircuitEvents = circuitEvents.filter(
+    (event) => String(event.year) === activeCircuitYear
+  )
+  const viewingHistoricalYear = Boolean(
+    calendarData?.current_year && activeCircuitYear !== String(calendarData.current_year)
+  )
+  const activeTournament = selectedEventId
+    ? historyTournament
+    : viewingHistoricalYear
+      ? null
+      : calendarData?.active_tournament
   const isCompletedEvent = activeTournament?.status === 'completed'
   const userTeamId = selectedTeam?.id
   const isPreTournament = Boolean(
@@ -259,6 +395,7 @@ function TournamentCalendar({
   ).entries()].sort((a, b) => a[1].localeCompare(b[1]))
   const stageLabels = {
     group: 'Group Stage',
+    round16: 'Round of 16',
     quarterfinal: 'Quarter-finals',
     semifinal: 'Semi-finals',
     final: 'Finals',
@@ -268,11 +405,12 @@ function TournamentCalendar({
     if (placement.includes('champion') || placement.includes('runner-up')) return 'final'
     if (placement.includes('semi')) return 'semifinal'
     if (placement.includes('quarter')) return 'quarterfinal'
+    if (placement.includes('round of 16')) return 'round16'
     return 'group'
   }
   const stageFilterOptions = [...new Set(leaderboardPlayers.map(getPlayerStage))]
-    .sort((a, b) => ['group', 'quarterfinal', 'semifinal', 'final'].indexOf(a) -
-      ['group', 'quarterfinal', 'semifinal', 'final'].indexOf(b))
+    .sort((a, b) => ['group', 'round16', 'quarterfinal', 'semifinal', 'final'].indexOf(a) -
+      ['group', 'round16', 'quarterfinal', 'semifinal', 'final'].indexOf(b))
   const filteredLeaderboardPlayers = leaderboardPlayers.filter((player) => {
     const matchesTeam = statsTeamFilter === 'all' || String(player.team_id) === statsTeamFilter
     const matchesStage = statsStageFilter === 'all' || getPlayerStage(player) === statsStageFilter
@@ -313,11 +451,13 @@ function TournamentCalendar({
 
   // Group stage matches & standings
   const groupMatches = activeTournament?.matches?.filter((m) => m.stage === 'group_stage') || []
+  const roundOf16Matches = activeTournament?.matches?.filter((m) => m.stage === 'round_of_16') || []
+  const isExpandedMajor = activeTournament?.tier === 'Major' && (activeTournament?.participants?.length === 32 || !activeTournament?.participants?.length)
   const quarterFinalMatches = activeTournament?.matches?.filter((m) => m.stage === 'quarter_final') || []
   const semiFinalMatches = activeTournament?.matches?.filter((m) => m.stage === 'semi_final') || []
   const grandFinalMatches = activeTournament?.matches?.filter((m) => m.stage === 'grand_final') || []
 
-  const groupNames = ['A', 'B', 'C', 'D']
+  const groupNames = isExpandedMajor ? ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] : ['A', 'B', 'C', 'D']
   const sortStandings = (a, b) => {
     if (b.wins !== a.wins) return b.wins - a.wins
     if (b.round_diff !== a.round_diff) return b.round_diff - a.round_diff
@@ -332,9 +472,24 @@ function TournamentCalendar({
     ])
   )
   const activeGroupMatches = groupMatches.filter((match) => match.group_name === activeGroup)
+  const handleCircuitYearChange = (event) => {
+    setSelectedCircuitYear(event.target.value)
+    setSelectedEventId('')
+    setHistoryTournament(null)
+    setTournamentStats(null)
+    setHistoryError(null)
+    setActiveSubTab('groups')
+    onActiveTournamentChange?.(
+      activeCircuitYear === String(calendarData?.current_year)
+        ? calendarData?.active_tournament?.name || null
+        : null
+    )
+  }
 
   return (
     <div className="tournament-calendar-container">
+      {recapSeason && <SeasonRecap season={recapSeason} onClose={() => setRecapSeason(null)} />}
+      {recapError && <p className="major-format-note" role="status">{recapError}</p>}
       {/* ── Calendar Hero Bar ── */}
       <div className="calendar-hero-bar">
         <div className="calendar-meta">
@@ -383,13 +538,26 @@ function TournamentCalendar({
         </div>
       </div>
 
-      {/* ── Season Circuit Timeline Strip ── */}
-      <div className="circuit-strip-wrapper">
-        <div className="circuit-strip-title">
-          <span>📅 Tournament Circuit, Live Events & Archive</span>
-        </div>
-        <div className="circuit-strip">
-          {circuitEvents.map((tourney) => {
+      <div className="tournament-workspace">
+        {/* ── Season Circuit Sidebar ── */}
+        <aside className="circuit-strip-wrapper" aria-label="Tournament events">
+          <div className="circuit-strip-title">
+            <span>📅 Tournament Circuit</span>
+          </div>
+          <label className="circuit-year-select">
+            <span>Season archive</span>
+            <select
+              aria-label="Select tournament archive year"
+              value={activeCircuitYear}
+              onChange={handleCircuitYearChange}
+            >
+              {circuitYears.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </label>
+          <div className="circuit-strip" ref={circuitStripRef}>
+            {visibleCircuitEvents.map((tourney) => {
             const isCurrentEvent = tourney.id === calendarData?.active_tournament?.id
             const isSelected = selectedEventId
               ? Number(selectedEventId) === tourney.id
@@ -422,7 +590,6 @@ function TournamentCalendar({
                 }
               >
                 <span className="circuit-card-top">
-                  <span className="circuit-card-year">{tourney.year}</span>
                   <span className="circuit-card-month">{MONTH_NAMES[tourney.month]}</span>
                   <span className={`circuit-card-tier ${tierClass}`}>{tourney.tier}</span>
                 </span>
@@ -435,10 +602,14 @@ function TournamentCalendar({
                 </span>
               </button>
             )
-          })}
-        </div>
-      </div>
+            })}
+            {visibleCircuitEvents.length === 0 && (
+              <p className="circuit-empty">No events are archived for {activeCircuitYear}.</p>
+            )}
+          </div>
+        </aside>
 
+        <main className="tournament-main-content">
       {/* ── Active Tournament Hub ── */}
       {activeTournament ? (
         <div className="active-tournament-hub">
@@ -488,7 +659,7 @@ function TournamentCalendar({
                   💰 Prize Pool: ${activeTournament.prize_pool.toLocaleString()}
                 </span>
                 <span className="meta-tag format">
-                  ⚔️ Series Format: {activeTournament.format} (Best of X, Odd)
+                  ⚔️ {isExpandedMajor ? 'Bo3 groups & knockouts · Bo5 final' : `Series Format: ${activeTournament.format} (Best of X, Odd)`}
                 </span>
                 <span className="meta-tag">
                   🎯 Top {activeTournament.min_rank_required} Cutoff
@@ -537,7 +708,7 @@ function TournamentCalendar({
               className={`t-subnav-btn ${activeSubTab === 'seeds' ? 'active' : ''}`}
               onClick={() => setActiveSubTab('seeds')}
             >
-              Seeded Teams (16)
+              Seeded Teams ({activeTournament.participants?.length || (isExpandedMajor ? 32 : 16)})
             </button>
             <button
               className={`t-subnav-btn ${activeSubTab === 'rankings' ? 'active' : ''}`}
@@ -568,7 +739,7 @@ function TournamentCalendar({
                 <div className="group-card">
                   <div className="group-header">
                     <h3>Group {activeGroup}</h3>
-                    <span className="qualifying-badge">Top 2 to Quarters</span>
+                    <span className="qualifying-badge">{isExpandedMajor ? 'Top 2 to Round of 16' : 'Top 2 to Quarters'}</span>
                   </div>
                   <table className="standings-table">
                     <thead>
@@ -683,10 +854,10 @@ function TournamentCalendar({
                           ) : (
                             <button
                               className="btn-play-match"
-                              onClick={() => handleSimulateMatch(m.id)}
+                              onClick={() => (isUserMatch ? openPreMatch(m) : handleSimulateMatch(m.id))}
                               disabled={isSimulating || isCompletedEvent || isPreTournament}
                             >
-                              {isSimulating ? 'Playing...' : isUserMatch ? 'Play Match ⚔️' : 'Simulate'}
+                              {isSimulating ? 'Playing...' : isUserMatch ? 'Lineup & Play ⚔️' : 'Simulate'}
                             </button>
                           )}
                         </div>
@@ -701,6 +872,7 @@ function TournamentCalendar({
           {/* ── Subtab: Playoffs Bracket ── */}
           {activeSubTab === 'playoffs' && (
             <div className="bracket-wrapper">
+              {isExpandedMajor && <p className="major-format-note">32 teams · 8 groups · Top 2 per group reach the main stage. Bo3 knockouts, Bo5 final. Main-stage teams earn at least 90 points and 1% of the prize pool, paid when the event concludes. Prize shares: champion 40%, runner-up 20%, semifinalists 10% each, quarterfinalists 3% each, round-of-16 finishers 1% each.</p>}
               {activeTournament.champion_name && (
                 <div className="champion-podium">
                   <div className="trophy-large">🏆</div>
@@ -708,20 +880,88 @@ function TournamentCalendar({
                   <div className="champ-name">{activeTournament.champion_name}</div>
                   <div className="champ-rewards">
                     <span className="reward-cash">
-                      💵 Winner Prize: +${(activeTournament.prize_pool * 0.5).toLocaleString()}
+                      💵 Winner Prize: +${(activeTournament.prize_pool * (isExpandedMajor ? 0.4 : 0.5)).toLocaleString()}
                     </span>
                     <span className="reward-pts">📈 +1,000 Ranking Points</span>
                   </div>
                 </div>
               )}
 
-              <div className="bracket-rounds-container">
+              <div className={`bracket-rounds-container ${isExpandedMajor ? 'major-bracket' : ''}`}>
+                {isExpandedMajor && (<>
+                {/* Major Round of 16 Column */}
+                <div className="bracket-column">
+                  <div className="bracket-column-header">Round of 16 (Bo3)</div>
+                  {roundOf16Matches.length === 0 ? (
+                    <p className="text-muted" style={{ textAlign: 'center', padding: '2rem' }}>
+                      Complete Group Stage to unlock Round of 16
+                    </p>
+                  ) : (
+                    roundOf16Matches.map((m) => {
+                      const isUserMatch =
+                        userTeamId && (m.team1_id === userTeamId || m.team2_id === userTeamId)
+                      const isCompleted = m.status === 'completed'
+                      const isSimulating = simulatingMatchId === m.id
+                      return (
+                        <div
+                          key={m.id}
+                          className={`match-card ${isUserMatch ? 'is-user-match' : ''}`}
+                        >
+                          <div className="match-card-meta">
+                            <span>{m.round_name}</span>
+                            <span className="match-format-tag">{m.format}</span>
+                          </div>
+                          <div className="match-card-teams">
+                            <div
+                              className={`match-team-row ${
+                                isCompleted && m.winner_id === m.team1_id ? 'winner' : ''
+                              } ${userTeamId === m.team1_id ? 'user-team' : ''}`}
+                            >
+                              <span>{m.team1_name}</span>
+                              <span className="match-card-score">{m.team1_score}</span>
+                            </div>
+                            <div
+                              className={`match-team-row ${
+                                isCompleted && m.winner_id === m.team2_id ? 'winner' : ''
+                              } ${userTeamId === m.team2_id ? 'user-team' : ''}`}
+                            >
+                              <span>{m.team2_name}</span>
+                              <span className="match-card-score">{m.team2_score}</span>
+                            </div>
+                          </div>
+                          <div className="match-card-actions">
+                            {isCompleted ? (
+                              <button
+                                className="btn-view-score"
+                                onClick={() => openScoreboard(m)}
+                              >
+                                Scoreboard 📊
+                              </button>
+                            ) : isSpectatorView ? (
+                              <span className="text-muted">Not played yet</span>
+                            ) : (
+                              <button
+                                className="btn-play-match"
+                                onClick={() => (isUserMatch ? openPreMatch(m) : handleSimulateMatch(m.id))}
+                                disabled={isSimulating || isCompletedEvent || isPreTournament}
+                              >
+                                {isSimulating ? 'Playing...' : isUserMatch ? 'Lineup & Play ⚔️' : 'Simulate'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+
+                </>)}
                 {/* Quarter-Finals Column */}
                 <div className="bracket-column">
                   <div className="bracket-column-header">Quarter-Finals (Bo3)</div>
                   {quarterFinalMatches.length === 0 ? (
                     <p className="text-muted" style={{ textAlign: 'center', padding: '2rem' }}>
-                      Complete Group Stage to unlock Quarter-Finals
+                      {isExpandedMajor ? 'Complete Round of 16 to unlock Quarter-Finals' : 'Complete Group Stage to unlock Quarter-Finals'}
                     </p>
                   ) : (
                     quarterFinalMatches.map((m) => {
@@ -769,10 +1009,10 @@ function TournamentCalendar({
                             ) : (
                               <button
                                 className="btn-play-match"
-                                onClick={() => handleSimulateMatch(m.id)}
+                                onClick={() => (isUserMatch ? openPreMatch(m) : handleSimulateMatch(m.id))}
                                 disabled={isSimulating || isCompletedEvent || isPreTournament}
                               >
-                                {isSimulating ? 'Playing...' : isUserMatch ? 'Play QF ⚔️' : 'Simulate'}
+                                {isSimulating ? 'Playing...' : isUserMatch ? 'Lineup & Play ⚔️' : 'Simulate'}
                               </button>
                             )}
                           </div>
@@ -787,7 +1027,7 @@ function TournamentCalendar({
                   <div className="bracket-column-header">Semi-Finals (Bo3)</div>
                   {semiFinalMatches.length === 0 ? (
                     <p className="text-muted" style={{ textAlign: 'center', padding: '2rem' }}>
-                      Complete Group Stage to unlock Semi-Finals
+                      Complete Quarter-Finals to unlock Semi-Finals
                     </p>
                   ) : (
                     semiFinalMatches.map((m) => {
@@ -836,10 +1076,10 @@ function TournamentCalendar({
                             ) : (
                               <button
                                 className="btn-play-match"
-                                onClick={() => handleSimulateMatch(m.id)}
+                                onClick={() => (isUserMatch ? openPreMatch(m) : handleSimulateMatch(m.id))}
                                 disabled={isSimulating || isCompletedEvent || isPreTournament}
                               >
-                                {isSimulating ? 'Playing...' : isUserMatch ? 'Play Semi ⚔️' : 'Simulate'}
+                                {isSimulating ? 'Playing...' : isUserMatch ? 'Lineup & Play ⚔️' : 'Simulate'}
                               </button>
                             )}
                           </div>
@@ -904,10 +1144,10 @@ function TournamentCalendar({
                             ) : (
                               <button
                                 className="btn-play-match"
-                                onClick={() => handleSimulateMatch(m.id)}
+                                onClick={() => (isUserMatch ? openPreMatch(m) : handleSimulateMatch(m.id))}
                                 disabled={isSimulating || isCompletedEvent || isPreTournament}
                               >
-                                {isSimulating ? 'Playing...' : isUserMatch ? 'Play Final ⚔️' : 'Simulate'}
+                                {isSimulating ? 'Playing...' : isUserMatch ? 'Lineup & Play ⚔️' : 'Simulate'}
                               </button>
                             )}
                           </div>
@@ -1154,7 +1394,78 @@ function TournamentCalendar({
           {historyLoading ? 'Loading archived event...' : historyError || 'Archived event details are unavailable.'}
         </div>
       ) : (
-        <div className="empty-state">No tournament active in current month.</div>
+        <div className="empty-state">
+          {viewingHistoricalYear
+            ? `Select an archived event from ${activeCircuitYear} to view its details.`
+            : 'No tournament active in current month.'}
+        </div>
+      )}
+        </main>
+      </div>
+
+      {preMatch && (
+        <div
+          className="scoreboard-overlay lineup-overlay"
+          onClick={() => !playingPreMatch && !preMatchLoading && setPreMatch(null)}
+        >
+          <section
+            className="scoreboard-modal lineup-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="lineup-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="scoreboard-header">
+              <div>
+                <p className="lineup-eyebrow">{preMatch.match.round_name || 'Tournament Match'} · {preMatch.match.format}</p>
+                <h3 id="lineup-modal-title">Match Lineups</h3>
+              </div>
+              <button
+                className="btn-close-scoreboard"
+                type="button"
+                aria-label="Close lineup preview"
+                onClick={() => !playingPreMatch && !preMatchLoading && setPreMatch(null)}
+                disabled={playingPreMatch || preMatchLoading}
+              >
+                ✕
+              </button>
+            </div>
+
+            {preMatchLoading ? (
+              <p className="lineup-state">Loading both lineups…</p>
+            ) : preMatchError && !preMatch.lineup ? (
+              <p className="lineup-state lineup-error" role="alert">{preMatchError}</p>
+            ) : preMatch.lineup ? (
+              <>
+                <div className="lineup-versus">
+                  <LineupTeam team={preMatch.lineup.user_team} isUserTeam />
+                  <div className="lineup-versus-mark">VS</div>
+                  <LineupTeam team={preMatch.lineup.opponent_team} />
+                </div>
+
+                {preMatchError && <p className="lineup-state lineup-error" role="alert">{preMatchError}</p>}
+                <div className="lineup-modal-actions">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => setPreMatch(null)}
+                    disabled={playingPreMatch || preMatchLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn-play-match"
+                    type="button"
+                    onClick={playPreMatch}
+                    disabled={playingPreMatch}
+                  >
+                    {playingPreMatch ? 'Playing Match…' : 'Play Match ⚔️'}
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </section>
+        </div>
       )}
 
       {/* ── CS PRO MATCH SCOREBOARD MODAL ── */}

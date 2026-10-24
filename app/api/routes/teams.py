@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app import models
+from app.domain.player_roles import base_role
 from app.api.schemas.team_schema import (
     TeamCreate,
     TeamResponse,
@@ -16,7 +17,11 @@ from app.api.schemas.team_schema import (
 )
 from app.database import get_db
 from app.services.roster_service import RosterService
-from app.services.transfer_service import ensure_transfers_unlocked, reconcile_ai_rosters
+from app.services.transfer_service import (
+    ensure_transfers_unlocked,
+    reconcile_ai_rosters,
+    withdraw_pending_buyout_offers,
+)
 
 router = APIRouter()
 
@@ -52,6 +57,8 @@ def add_player_to_team(team_id: int, player_id: int, db: Session = Depends(get_d
 
     ensure_transfers_unlocked(db, team.id, player.team_id)
     player.team_id = team_id
+    player.is_transfer_listed = False
+    withdraw_pending_buyout_offers(db, player.id)
     db.commit()
     return {"message": f"Player {player.player} assigned to team {team.name}"}
 
@@ -64,6 +71,8 @@ def remove_player_from_team(team_id: int, player_id: int, db: Session = Depends(
 
     ensure_transfers_unlocked(db, player.team_id)
     player.team_id = None
+    player.is_transfer_listed = False
+    withdraw_pending_buyout_offers(db, player.id)
     db.commit()
     return {"message": f"Player {player.player} removed from team"}
 
@@ -209,17 +218,28 @@ def update_player_role(player_id: int, role_update: PlayerRoleUpdate, db: Sessio
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
 
+    fields = role_update.model_fields_set
     new_role = role_update.role
-    if new_role and new_role.lower() == "igl":
-        player.is_igl = True
-        player.selected_role = new_role
+    legacy_igl = "role" in fields and (new_role or "").lower() == "igl"
+    if "role" in fields and not legacy_igl:
+        if new_role and new_role.lower() not in {"entry", "support", "awper", "lurker", "rifler"}:
+            raise HTTPException(status_code=400, detail="Unsupported playing role")
+        player.selected_role = new_role or None
 
-        if player.team_id:
-            other_players = db.query(models.Player).filter(models.Player.team_id == player.team_id, models.Player.id != player.id).all()
-            for other_player in other_players:
-                other_player.is_igl = False
-    else:
-        player.selected_role = new_role
+    # A captain appointment never consumes the player's playing-role slot.
+    appointment = role_update.is_igl if "is_igl" in fields else True if legacy_igl else None
+    if appointment is not None:
+        player.is_igl = appointment
+        if appointment and player.team_id:
+            for teammate in db.query(models.Player).filter(
+                models.Player.team_id == player.team_id, models.Player.id != player.id
+            ).all():
+                teammate.is_igl = False
+                teammate.role = base_role(teammate.role)
+                teammate.selected_role = base_role(teammate.selected_role)
+
+    player.role = base_role(player.role)
+    player.selected_role = base_role(player.selected_role)
 
     db.commit()
     db.refresh(player)

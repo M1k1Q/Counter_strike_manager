@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -53,6 +55,16 @@ def ensure_transfers_unlocked(db: Session, *team_ids: int | None) -> None:
         )
 
 
+def withdraw_pending_buyout_offers(db: Session, player_id: int) -> None:
+    pending_offers = db.query(models.AIBuyoutOffer).filter(
+        models.AIBuyoutOffer.player_id == player_id,
+        models.AIBuyoutOffer.status == "pending",
+    ).all()
+    for offer in pending_offers:
+        offer.status = "withdrawn"
+        offer.updated_at = datetime.utcnow()
+
+
 def _normalize_role(role: str | None) -> str | None:
     if not role:
         return None
@@ -87,6 +99,7 @@ def add_player_to_ai_roster(db: Session, team: models.Team, player: models.Playe
     _release_ai_roster_slot(db, team, player)
     player.team_id = team.id
     player.is_active_roster = False
+    player.is_transfer_listed = False
     db.flush()
 
 
@@ -149,6 +162,8 @@ class TransferService:
         ensure_transfers_unlocked(self.db, source_team.id, target_team_id)
         player.team_id = target_team_id
         player.is_active_roster = False
+        player.is_transfer_listed = False
+        withdraw_pending_buyout_offers(self.db, player.id)
         source_team.budget += offer_amount
         manager.budget -= offer_amount
         self.db.flush()

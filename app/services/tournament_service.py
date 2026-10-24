@@ -5,19 +5,20 @@ from sqlalchemy import func
 from app import models
 from app.domain.enums import MatchStage, MatchStatus, TournamentStatus, TournamentTier, MatchFormats
 from app.services.match_engine import MatchEngine
+from app.services.player_development_service import apply_yearly_progression
 from app.services.transfer_service import reconcile_ai_rosters
 
 CIRCUIT_EVENTS = [
     {"month": 1, "name": "IEM Krakow", "tier": TournamentTier.S_TIER, "prize": 1_000_000, "min_rank": 16, "format": "Bo5"},
     {"month": 2, "name": "BLAST Premier Spring Groups", "tier": TournamentTier.A_TIER, "prize": 400_000, "min_rank": 16, "format": "Bo5"},
     {"month": 3, "name": "ESL Pro League Spring", "tier": TournamentTier.S_TIER, "prize": 750_000, "min_rank": 16, "format": "Bo5"},
-    {"month": 5, "name": "PGL CS2 Major", "tier": TournamentTier.MAJOR, "prize": 1_250_000, "min_rank": 16, "format": "Bo5"},
+    {"month": 5, "name": "PGL CS2 Major", "tier": TournamentTier.MAJOR, "prize": 1_250_000, "min_rank": 32, "format": "Bo5"},
     {"month": 6, "name": "BLAST Premier Spring Final", "tier": TournamentTier.S_TIER, "prize": 500_000, "min_rank": 16, "format": "Bo5"},
     {"month": 7, "name": "IEM Cologne", "tier": TournamentTier.S_TIER, "prize": 1_000_000, "min_rank": 16, "format": "Bo5"},
     {"month": 8, "name": "Roobet Cup Global", "tier": TournamentTier.A_TIER, "prize": 350_000, "min_rank": 16, "format": "Bo5"},
     {"month": 9, "name": "ESL Pro League Autumn", "tier": TournamentTier.S_TIER, "prize": 750_000, "min_rank": 16, "format": "Bo5"},
     {"month": 10, "name": "Thunderpick World Championship", "tier": TournamentTier.A_TIER, "prize": 600_000, "min_rank": 16, "format": "Bo5"},
-    {"month": 11, "name": "Perfect World Winter Major", "tier": TournamentTier.MAJOR, "prize": 1_250_000, "min_rank": 16, "format": "Bo5"},
+    {"month": 11, "name": "Perfect World Winter Major", "tier": TournamentTier.MAJOR, "prize": 1_250_000, "min_rank": 32, "format": "Bo5"},
     {"month": 12, "name": "BLAST Premier World Final", "tier": TournamentTier.S_TIER, "prize": 1_000_000, "min_rank": 16, "format": "Bo5"},
 ]
 
@@ -37,6 +38,78 @@ LOWER_TIER_EVENTS = [
 ]
 
 ALL_SCHEDULED_EVENTS = CIRCUIT_EVENTS + LOWER_TIER_EVENTS
+
+# Year-end Top 20: only Major / S / A events count; volume + SOS gate the ranking.
+YEAR_END_ELIGIBLE_TIERS = {
+    TournamentTier.MAJOR.value,
+    TournamentTier.S_TIER.value,
+    TournamentTier.A_TIER.value,
+}
+YEAR_END_MIN_MAPS = 20
+YEAR_END_RATING_PRIOR = 1.00
+YEAR_END_PRIOR_MAPS = 15
+YEAR_END_TOP_OPPONENT_RANK = 20
+YEAR_END_SOS_WEIGHT = 0.08
+
+
+def _year_end_ranking_score(
+    rating: float,
+    maps_played: int,
+    maps_vs_top20: int = 0,
+) -> float:
+    """Bayesian-smoothed rating with a small boost for maps vs top-20 teams."""
+    maps = max(0, int(maps_played))
+    adj_rating = (
+        (rating * maps) + (YEAR_END_RATING_PRIOR * YEAR_END_PRIOR_MAPS)
+    ) / (maps + YEAR_END_PRIOR_MAPS)
+    top20_share = (maps_vs_top20 / maps) if maps > 0 else 0.0
+    top20_share = max(0.0, min(1.0, top20_share))
+    return adj_rating * (1.0 + YEAR_END_SOS_WEIGHT * top20_share)
+
+
+def _maps_vs_top_opponents(
+    db: Session,
+    tournament_ids: List[int],
+    player_ids: Optional[List[int]] = None,
+    rank_cutoff: int = YEAR_END_TOP_OPPONENT_RANK,
+) -> Dict[int, int]:
+    """Count per-player map rows against opponents ranked <= rank_cutoff.
+
+    Returns an empty dict when match stats are already wiped (re-archive).
+    """
+    if not tournament_ids:
+        return {}
+
+    query = (
+        db.query(models.PlayerMatchStat, models.Match)
+        .join(models.Match, models.Match.id == models.PlayerMatchStat.match_id)
+        .filter(models.Match.tournament_id.in_(tournament_ids))
+    )
+    if player_ids:
+        query = query.filter(models.PlayerMatchStat.player_id.in_(player_ids))
+
+    rows = query.all()
+    if not rows:
+        return {}
+
+    team_ids = set()
+    for stat, match in rows:
+        opponent_id = match.team2_id if stat.team_id == match.team1_id else match.team1_id
+        if opponent_id:
+            team_ids.add(opponent_id)
+
+    rankings = {
+        team.id: team.ranking
+        for team in db.query(models.Team).filter(models.Team.id.in_(team_ids)).all()
+    }
+
+    counts: Dict[int, int] = {}
+    for stat, match in rows:
+        opponent_id = match.team2_id if stat.team_id == match.team1_id else match.team1_id
+        opponent_rank = rankings.get(opponent_id)
+        if opponent_rank is not None and opponent_rank <= rank_cutoff:
+            counts[stat.player_id] = counts.get(stat.player_id, 0) + 1
+    return counts
 
 
 class TournamentService:
@@ -122,7 +195,7 @@ class TournamentService:
         if not team:
             return {"invited": False, "reason": "No team selected", "cutoff": tournament.min_rank_required}
 
-        cutoff = tournament.min_rank_required or 8
+        cutoff = 32 if tournament.tier == TournamentTier.MAJOR.value else tournament.min_rank_required or 8
         is_invited = bool(team.ranking and team.ranking <= cutoff)
         return {
             "invited": is_invited,
@@ -137,8 +210,8 @@ class TournamentService:
 
     def initialize_tournament(self, tournament_id: int) -> models.Tournament:
         """
-        Seed 16 teams into four groups of four and generate round-robin matches.
-        Each group's top two teams advance to the quarter-finals.
+        Seed four groups of four, or eight groups for 32-team Majors.
+        Top two per group reach the quarter-finals, or Major round of 16.
         Teams cannot participate in more than one tournament in the same month!
         """
         tournament = self.db.query(models.Tournament).filter(models.Tournament.id == tournament_id).first()
@@ -181,10 +254,14 @@ class TournamentService:
         user_team = manager.team if (manager and manager.team) else None
         eligible_team_ids = {team.id for team in eligible_teams}
 
-        cutoff = tournament.min_rank_required or 16
+        is_major = tournament.tier == TournamentTier.MAJOR.value
+        field_size = 32 if is_major else 16
+        cutoff = 32 if is_major else tournament.min_rank_required or 16
+        if is_major:
+            tournament.min_rank_required = cutoff
         is_lower_tier = tournament.tier in [TournamentTier.B_TIER.value, TournamentTier.C_TIER.value]
 
-        # Determine 16 invited teams:
+        # Fill the event field after reserving the eligible manager slot:
         invited_teams = []
         user_included = False
 
@@ -202,7 +279,7 @@ class TournamentService:
                     user_included = True
 
         for t in eligible_teams:
-            if len(invited_teams) >= 16:
+            if len(invited_teams) >= field_size:
                 break
             if t.id in busy_team_ids:
                 continue
@@ -210,20 +287,20 @@ class TournamentService:
                 continue
             invited_teams.append(t)
 
-        if len(invited_teams) < 16:
+        if len(invited_teams) < field_size:
             if is_lower_tier:
                 # In small database setups (like tests with only 16 teams), skip/mark completed if not enough teams
                 tournament.status = TournamentStatus.COMPLETED.value
                 self.db.commit()
                 return tournament
-            raise ValueError(f"Not enough available teams to populate tournament {tournament.name} (requires 16, found {len(invited_teams)})")
+            raise ValueError(f"Not enough available teams to populate tournament {tournament.name} (requires {field_size}, found {len(invited_teams)})")
 
         # Sort invited teams by ranking to assign Seeds 1..16
         invited_teams.sort(key=lambda t: t.ranking if t.ranking else 999)
 
         # Snake seed the four groups so the strongest seeds are distributed evenly.
-        group_names = ["A", "B", "C", "D"]
-        group_by_seed = ["A", "B", "C", "D", "D", "C", "B", "A"]
+        group_names = list("ABCDEFGH" if is_major else "ABCD")
+        group_by_seed = group_names + list(reversed(group_names))
 
         participants = []
         for seed_idx, team in enumerate(invited_teams, 1):
@@ -264,7 +341,7 @@ class TournamentService:
                         round_name=f"Group {grp_name} - Round {round_num}",
                         team1_id=grp_teams[idx1],
                         team2_id=grp_teams[idx2],
-                        format="Bo1" if "Major" not in tournament.tier else "Bo3",
+                        format="Bo3" if is_major else "Bo1",
                         status=MatchStatus.SCHEDULED.value,
                     )
                     self.db.add(match)
@@ -363,7 +440,7 @@ class TournamentService:
     def check_and_advance_stage(self, tournament: models.Tournament) -> None:
         """
         Check if current tournament stage is complete and advance to next:
-        1. Group Stage (24 matches) -> Create Quarter-Finals (4 matches, Bo3)
+        1. Groups -> Round of 16 for 32-team Majors, otherwise Quarter-Finals
         2. Quarter-Finals (4 matches) -> Create Semi-Finals (2 matches, Bo3)
         3. Semi-Finals (2 matches) -> Create Grand Final (1 match, Bo5)
         4. Grand Final (1 match) -> Conclude tournament & assign MVP/EVP
@@ -375,10 +452,20 @@ class TournamentService:
         if group_matches and all(m.status == MatchStatus.COMPLETED.value for m in group_matches):
             playoff_matches = [
                 m for m in matches
-                if m.stage in [MatchStage.QUARTER_FINAL.value, MatchStage.SEMI_FINAL.value, MatchStage.GRAND_FINAL.value]
+                if m.stage in [MatchStage.ROUND_OF_16.value, MatchStage.QUARTER_FINAL.value, MatchStage.SEMI_FINAL.value, MatchStage.GRAND_FINAL.value]
             ]
             if not playoff_matches:
-                self.create_quarterfinals(tournament)
+                if len(tournament.participants) == 32:
+                    self.create_round_of_16(tournament)
+                else:
+                    self.create_quarterfinals(tournament)
+                return
+
+        # Major main stage: eight round-of-16 winners enter four quarter-finals.
+        ro16 = [m for m in matches if m.stage == MatchStage.ROUND_OF_16.value]
+        if len(ro16) == 8 and all(m.status == MatchStatus.COMPLETED.value for m in ro16):
+            if not any(m.stage == MatchStage.QUARTER_FINAL.value for m in matches):
+                self.create_major_quarterfinals(tournament, ro16)
                 return
 
         # 2. Check Quarter-Finals
@@ -402,6 +489,50 @@ class TournamentService:
         if gf_matches and all(m.status == MatchStatus.COMPLETED.value for m in gf_matches):
             if tournament.status != TournamentStatus.COMPLETED.value:
                 self.conclude_tournament(tournament, gf_matches[0])
+
+    def create_round_of_16(self, tournament: models.Tournament) -> None:
+        """Eight groups send their top two into cross-group Bo3 knockout ties."""
+        groups = {
+            name: sorted(
+                (p for p in tournament.participants if p.group_name == name),
+                key=lambda p: (p.wins, p.rounds_won - p.rounds_lost, -p.seed),
+                reverse=True,
+            ) for name in "ABCDEFGH"
+        }
+        if any(len(group) != 4 for group in groups.values()):
+            raise ValueError("A 32-team Major requires eight complete groups")
+        for group in groups.values():
+            for index, participant in enumerate(group):
+                participant.eliminated = index >= 2
+                participant.placement = "Round of 16" if index < 2 else "Group Stage"
+        for index, (left, right) in enumerate(zip("ACEG", "BDFH")):
+            for offset, (a, b) in enumerate(((groups[left][0], groups[right][1]),
+                                            (groups[right][0], groups[left][1]))):
+                self.db.add(models.Match(
+                    tournament_id=tournament.id, stage=MatchStage.ROUND_OF_16.value,
+                    round_name=f"Round of 16 {index * 2 + offset + 1}",
+                    team1_id=a.team_id, team2_id=b.team_id,
+                    format="Bo3", status=MatchStatus.SCHEDULED.value,
+                ))
+        self.db.commit()
+
+    def create_major_quarterfinals(self, tournament: models.Tournament, matches: List[models.Match]) -> None:
+        ordered = sorted(matches, key=lambda m: int(m.round_name.rsplit(" ", 1)[-1]))
+        winners = {m.winner_id for m in ordered}
+        for participant in tournament.participants:
+            if participant.placement == "Round of 16":
+                participant.eliminated = participant.team_id not in winners
+                if not participant.eliminated:
+                    participant.placement = "Quarterfinalist"
+        for index in range(4):
+            self.db.add(models.Match(
+                tournament_id=tournament.id, stage=MatchStage.QUARTER_FINAL.value,
+                round_name=f"Quarter-Final {index + 1}",
+                team1_id=ordered[index * 2].winner_id,
+                team2_id=ordered[index * 2 + 1].winner_id,
+                format="Bo3", status=MatchStatus.SCHEDULED.value,
+            ))
+        self.db.commit()
 
     def create_quarterfinals(self, tournament: models.Tournament) -> None:
         """Advance each group's top two and pair adjacent groups in quarter-finals."""
@@ -542,6 +673,8 @@ class TournamentService:
 
     def conclude_tournament(self, tournament: models.Tournament, gf_match: models.Match) -> None:
         """Crown champion, distribute prize pool, update career stats, and recalculate world rankings."""
+        if tournament.status == TournamentStatus.COMPLETED.value:
+            return
         champion_id = gf_match.winner_id
         runner_up_id = gf_match.team1_id if gf_match.winner_id == gf_match.team2_id else gf_match.team2_id
 
@@ -570,42 +703,31 @@ class TournamentService:
         else: # C_TIER or other lower tier
             pts_champ, pts_runner, pts_semi, pts_qf, pts_group = 100, 60, 35, 15, 5
 
-        # Check if manager's team won prize money & career points
+        is_expanded_major = tier == TournamentTier.MAJOR.value and len(tournament.participants) == 32
+        if is_expanded_major:
+            # 40 + 20 + 2*10 + 4*3 + 8*1 = 100% of the advertised pool.
+            rewards = {
+                "Champion": (40, pts_champ), "Runner-Up": (20, pts_runner),
+                "Semifinals": (10, pts_semi), "Quarterfinalist": (3, pts_qf),
+                "Round of 16": (1, 90), "Group Stage": (0, 0),
+            }
+        else:
+            rewards = {
+                "Champion": (50, pts_champ), "Runner-Up": (25, pts_runner),
+                "Semifinals": (10, pts_semi), "Quarterfinalist": (2.5, pts_qf),
+                "Group Stage": (0.5, pts_group),
+            }
         manager = self.db.query(models.Manager).first()
-        if manager and manager.team_id:
-            m_team_id = manager.team_id
-            if m_team_id == champion_id:
-                manager.budget += int(prize_total * 0.50)
-                manager.career_points += pts_champ
-            elif m_team_id == runner_up_id:
-                manager.budget += int(prize_total * 0.25)
-                manager.career_points += pts_runner
-            elif any(p.team_id == m_team_id and p.placement == "Semifinals" for p in tournament.participants):
-                manager.budget += int(prize_total * 0.10)
-                manager.career_points += pts_semi
-            elif any(p.team_id == m_team_id and p.placement == "Quarterfinalist" for p in tournament.participants):
-                manager.budget += int(prize_total * 0.025)
-                manager.career_points += pts_qf
-            elif any(p.team_id == m_team_id for p in tournament.participants):
-                manager.budget += int(prize_total * 0.005)
-                manager.career_points += pts_group
-
-        # Award ranking points to participating teams
-        for p in tournament.participants:
-            team = p.team
-            if not team:
-                continue
-            curr_pts = team.ranking_points or 0
-            if p.placement == "Champion":
-                team.ranking_points = curr_pts + pts_champ
-            elif p.placement == "Runner-Up":
-                team.ranking_points = curr_pts + pts_runner
-            elif p.placement == "Semifinals":
-                team.ranking_points = curr_pts + pts_semi
-            elif p.placement == "Quarterfinalist":
-                team.ranking_points = curr_pts + pts_qf
-            else:
-                team.ranking_points = curr_pts + pts_group
+        for participant in tournament.participants:
+            share, points = rewards.get(participant.placement, (0, 0))
+            prize = int(prize_total * share / 100)
+            if participant.team:
+                participant.team.ranking_points = (participant.team.ranking_points or 0) + points
+                if is_expanded_major:
+                    participant.team.budget = (participant.team.budget or 0) + prize
+            if manager and manager.team_id == participant.team_id:
+                manager.budget += prize
+                manager.career_points += points
 
         self.db.flush()
 
@@ -693,7 +815,7 @@ class TournamentService:
         # Identify playoff teams (Quarterfinals, Semifinals, Grand Final)
         playoff_team_ids = set()
         for m in tournament.matches:
-            if m.stage in [MatchStage.QUARTER_FINAL.value, MatchStage.SEMI_FINAL.value, MatchStage.GRAND_FINAL.value]:
+            if m.stage in [MatchStage.ROUND_OF_16.value, MatchStage.QUARTER_FINAL.value, MatchStage.SEMI_FINAL.value, MatchStage.GRAND_FINAL.value]:
                 if m.team1_id:
                     playoff_team_ids.add(m.team1_id)
                 if m.team2_id:
@@ -924,8 +1046,45 @@ class TournamentService:
             .order_by(models.Tournament.month.asc())
             .all()
         )
-        totals: Dict[int, Dict[str, Any]] = {}
+        # all_totals: every event (feeds yearly progression)
+        # top20_totals: Major/S/A only (feeds Yearly Top 20)
+        all_totals: Dict[int, Dict[str, Any]] = {}
+        top20_totals: Dict[int, Dict[str, Any]] = {}
         tournament_ids = [tournament.id for tournament in tournaments]
+        a_plus_tournament_ids = [
+            tournament.id
+            for tournament in tournaments
+            if tournament.tier in YEAR_END_ELIGIBLE_TIERS
+        ]
+
+        def _accumulate(bucket: Dict[int, Dict[str, Any]], player: Dict[str, Any]) -> None:
+            total = bucket.setdefault(player["player_id"], {
+                "player_id": player["player_id"],
+                "player_name": player["player_name"],
+                "team_name": player["team_name"],
+                "role": player["role"],
+                "maps_played": 0,
+                "kills": 0,
+                "deaths": 0,
+                "assists": 0,
+                "rating_sum": 0.0,
+                "adr_sum": 0.0,
+                "mvp_count": 0,
+                "evp_count": 0,
+                "maps_vs_top20": 0,
+            })
+            maps_played = player["maps_played"]
+            total["player_name"] = player["player_name"]
+            total["team_name"] = player["team_name"]
+            total["role"] = player["role"]
+            total["maps_played"] += maps_played
+            total["kills"] += player["kills"]
+            total["deaths"] += player["deaths"]
+            total["assists"] += player["assists"]
+            total["rating_sum"] += player["rating"] * maps_played
+            total["adr_sum"] += player["adr"] * maps_played
+            total["mvp_count"] += player["award"] == "MVP"
+            total["evp_count"] += bool(player["award"] and player["award"].startswith("EVP #"))
 
         for tournament in tournaments:
             event_stats = self.get_tournament_stats(tournament.id)
@@ -957,45 +1116,34 @@ class TournamentService:
                         award=player["award"],
                     ))
 
+            is_a_plus = tournament.tier in YEAR_END_ELIGIBLE_TIERS
             for player in event_stats["player_stats"]:
-                total = totals.setdefault(player["player_id"], {
-                    "player_id": player["player_id"],
-                    "player_name": player["player_name"],
-                    "team_name": player["team_name"],
-                    "role": player["role"],
-                    "maps_played": 0,
-                    "kills": 0,
-                    "deaths": 0,
-                    "assists": 0,
-                    "rating_sum": 0.0,
-                    "adr_sum": 0.0,
-                    "mvp_count": 0,
-                    "evp_count": 0,
-                })
-                maps_played = player["maps_played"]
-                total["player_name"] = player["player_name"]
-                total["team_name"] = player["team_name"]
-                total["role"] = player["role"]
-                total["maps_played"] += maps_played
-                total["kills"] += player["kills"]
-                total["deaths"] += player["deaths"]
-                total["assists"] += player["assists"]
-                total["rating_sum"] += player["rating"] * maps_played
-                total["adr_sum"] += player["adr"] * maps_played
-                total["mvp_count"] += player["award"] == "MVP"
-                total["evp_count"] += bool(player["award"] and player["award"].startswith("EVP #"))
+                _accumulate(all_totals, player)
+                if is_a_plus:
+                    _accumulate(top20_totals, player)
+
+        sos_counts = _maps_vs_top_opponents(self.db, a_plus_tournament_ids)
+        for player_id, total in top20_totals.items():
+            total["maps_vs_top20"] = sos_counts.get(player_id, 0)
 
         ranked_players = []
-        for player in totals.values():
+        for player in top20_totals.values():
             maps_played = player["maps_played"]
+            if maps_played < YEAR_END_MIN_MAPS:
+                continue
             player["rating"] = round(player["rating_sum"] / maps_played, 2)
             player["adr"] = round(player["adr_sum"] / maps_played, 1)
             player["kd_diff"] = player["kills"] - player["deaths"]
             player["kd_ratio"] = round(player["kills"] / max(1, player["deaths"]), 2)
+            player["ranking_score"] = _year_end_ranking_score(
+                player["rating_sum"] / maps_played,
+                maps_played,
+                player.get("maps_vs_top20", 0),
+            )
             ranked_players.append(player)
         ranked_players.sort(
             key=lambda player: (
-                player["rating"],
+                player["ranking_score"],
                 player["mvp_count"],
                 player["evp_count"],
                 player["maps_played"],
@@ -1026,6 +1174,78 @@ class TournamentService:
                 mvp_count=player["mvp_count"],
                 evp_count=player["evp_count"],
             ))
+
+        # Finalize all-event aggregates for progression (may include B/C maps).
+        for player in all_totals.values():
+            maps_played = max(1, player["maps_played"])
+            player["rating"] = round(player["rating_sum"] / maps_played, 2)
+            player["adr"] = round(player["adr_sum"] / maps_played, 1)
+            player["kd_diff"] = player["kills"] - player["deaths"]
+            player["kd_ratio"] = round(player["kills"] / max(1, player["deaths"]), 2)
+
+        manager = self.db.query(models.Manager).first()
+        user_team_id = manager.team_id if manager else None
+        user_team_rows = []
+        progression_stats = dict(all_totals)
+        if user_team_id is not None:
+            user_team_rows = (
+                self.db.query(
+                    models.PlayerMatchStat.player_id,
+                    models.Player.player,
+                    models.PlayerMatchStat.team_id,
+                    models.Team.name,
+                    func.count(models.PlayerMatchStat.id),
+                    func.avg(models.PlayerMatchStat.rating),
+                )
+                .join(models.Match, models.Match.id == models.PlayerMatchStat.match_id)
+                .join(models.Tournament, models.Tournament.id == models.Match.tournament_id)
+                .join(models.Player, models.Player.id == models.PlayerMatchStat.player_id)
+                .join(models.Team, models.Team.id == models.PlayerMatchStat.team_id)
+                .filter(
+                    models.Tournament.year == year,
+                    models.Tournament.status == TournamentStatus.COMPLETED.value,
+                    models.PlayerMatchStat.team_id == user_team_id,
+                )
+                .group_by(
+                    models.PlayerMatchStat.player_id,
+                    models.Player.player,
+                    models.PlayerMatchStat.team_id,
+                    models.Team.name,
+                )
+                .all()
+            )
+            for player_id, _, _, _, maps_played, rating in user_team_rows:
+                progression_stats[player_id] = {
+                    "rating": round(float(rating or 0.0), 2),
+                    "maps_played": maps_played,
+                }
+
+        apply_yearly_progression(self.db, year, progression_stats)
+
+        if user_team_rows:
+            user_player_ids = [row[0] for row in user_team_rows]
+            developed_players = {
+                player.id: player
+                for player in self.db.query(models.Player)
+                .filter(models.Player.id.in_(user_player_ids))
+                .all()
+            }
+            self.db.query(models.UserTeamYearlyPlayerRating).filter(
+                models.UserTeamYearlyPlayerRating.year == year,
+                models.UserTeamYearlyPlayerRating.team_id == user_team_id,
+            ).delete(synchronize_session=False)
+            for player_id, player_name, team_id, team_name, maps_played, rating in user_team_rows:
+                player = developed_players[player_id]
+                self.db.add(models.UserTeamYearlyPlayerRating(
+                    year=year,
+                    team_id=team_id,
+                    team_name=team_name,
+                    player_id=player_id,
+                    player_name=player_name,
+                    maps_played=maps_played,
+                    rating=round(float(rating or 0.0), 2),
+                    potential=int(player.potential or player.Rating or 0),
+                ))
 
         if tournament_ids:
             match_ids = self.db.query(models.Match.id).filter(
