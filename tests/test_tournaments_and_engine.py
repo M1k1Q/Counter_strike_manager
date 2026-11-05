@@ -587,7 +587,12 @@ def test_calendar_month_advance_opens_transfers_until_tournament_start(test_db):
     assert transfer_lock_name(test_db, 1) == next_event.name
 
 
-def test_calendar_skips_months_without_scheduled_tournaments(test_db):
+def test_calendar_skips_months_without_scheduled_tournaments(test_db, monkeypatch):
+    from app.services import tournament_service as tournament_module
+    # Create an explicitly empty April, independent of the live event schedule.
+    monkeypatch.setattr(tournament_module, "CIRCUIT_EVENTS", [
+        event for event in tournament_module.CIRCUIT_EVENTS if event["month"] != 4
+    ])
     service = TournamentService(test_db)
     state = service.get_or_create_calendar_state()
     march_event = (

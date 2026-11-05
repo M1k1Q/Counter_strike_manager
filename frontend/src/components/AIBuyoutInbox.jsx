@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import './AIBuyoutInbox.css'
+import PlayerAvatar from './PlayerAvatar'
 
 /**
  * AIBuyoutInbox
  * Renders a notification bell that opens an inbox panel.
  * Each pending AI buyout offer shows Sell / Reject / Negotiate actions.
  */
-export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = null }) {
+export default function AIBuyoutInbox({ offers, onRefresh, onOfferUpdated, transferLockName = null }) {
   const [open, setOpen] = useState(false)
-  const [activeOffer, setActiveOffer] = useState(null)
+  const [activeOfferId, setActiveOfferId] = useState(null)
+  const activeOffer = offers.find(offer => offer.id === activeOfferId) || null
   const [negotiating, setNegotiating] = useState(false)
   const [counterAmount, setCounterAmount] = useState('')
   const [actionMsg, setActionMsg] = useState(null)
@@ -31,7 +33,7 @@ export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = nu
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Failed to accept offer')
       setActionMsg(`✅ Deal done! ${offer.player_name} sold to ${offer.ai_team_name} for ${fmt(data.current_offer)}.`)
-      setActiveOffer(null)
+      setActiveOfferId(null)
       setNegotiating(false)
       onRefresh()
     } catch (err) {
@@ -49,7 +51,7 @@ export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = nu
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Failed to reject offer')
       setActionMsg(`🚫 Offer from ${offer.ai_team_name} rejected.`)
-      setActiveOffer(null)
+      setActiveOfferId(null)
       setNegotiating(false)
       onRefresh()
     } catch (err) {
@@ -75,20 +77,20 @@ export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = nu
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Counter failed')
+      onOfferUpdated(data)
 
       if (data.status === 'accepted') {
         setActionMsg(`✅ ${offer.ai_team_name} accepted your counter — ${offer.player_name} sold for ${fmt(data.current_offer)}!`)
-        setActiveOffer(null)
+        setActiveOfferId(null)
         setNegotiating(false)
         onRefresh()
       } else if (data.status === 'collapsed') {
         setActionMsg(`💔 ${offer.ai_team_name} walked away — negotiations collapsed.`)
-        setActiveOffer(null)
+        setActiveOfferId(null)
         setNegotiating(false)
         onRefresh()
       } else {
         // AI made a new counter
-        setActiveOffer(data)
         setCounterAmount('')
         setActionMsg(
           `🔄 ${data.ai_team_name} raised their offer to ${fmt(data.current_offer)} (round ${data.rounds}/${3}).`
@@ -102,7 +104,8 @@ export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = nu
   }
 
   const openOffer = (offer) => {
-    setActiveOffer(offer)
+    if (loading) return
+    setActiveOfferId(offer.id)
     setNegotiating(false)
     setCounterAmount('')
     setActionMsg(null)
@@ -110,7 +113,7 @@ export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = nu
 
   const closeSidebar = () => {
     setOpen(false)
-    setActiveOffer(null)
+    setActiveOfferId(null)
     setNegotiating(false)
     setActionMsg(null)
     setCounterAmount('')
@@ -168,7 +171,7 @@ export default function AIBuyoutInbox({ offers, onRefresh, transferLockName = nu
                       </span>
                       <span className={`buyout-status buyout-status--${offer.status}`}>{offer.status}</span>
                     </div>
-                    <div className="buyout-item__player">{offer.player_name}</div>
+                    <div className="buyout-item__player"><PlayerAvatar player={offer} />{offer.player_name}</div>
                     <div className="buyout-item__offer">{fmt(offer.current_offer)}</div>
 
                     {activeOffer?.id === offer.id && offer.status === 'pending' && (

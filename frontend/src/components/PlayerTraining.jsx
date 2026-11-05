@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import StatBar from './StatBar'
+import PlayerAvatar from './PlayerAvatar'
 
 const TRAINING_STATS = [
   ['firepower', 'Firepower'],
@@ -140,7 +141,7 @@ function PlayerTraining({ team, gameDate, onSaved }) {
             <article key={player.id} className="player-training-card">
               <div className="player-training-card-top">
                 <div className="player-training-identity">
-                  <span className="player-training-name">{player.player}</span>
+                  <span className="player-training-name"><PlayerAvatar player={player} />{player.player}</span>
                   <span className="player-training-meta">
                     {player.selected_role || player.role || 'Unassigned'}
                     {' · '}
@@ -236,7 +237,7 @@ function PlayerTraining({ team, gameDate, onSaved }) {
                   <tr key={`${entry.year}-${entry.team_id}-${entry.player_id}`}>
                     <td>{entry.year}</td>
                     <td>{entry.team_name}</td>
-                    <td>{entry.player_name}</td>
+                    <td><PlayerAvatar player={entry} size={32} />{entry.player_name}</td>
                     <td className={entry.rating > 1.09 ? 'yearly-rating-growth' : ''}>
                       {Number(entry.rating).toFixed(2)}
                     </td>

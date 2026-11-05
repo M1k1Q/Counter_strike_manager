@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import StatBar from './StatBar'
+import PlayerAvatar from './PlayerAvatar'
 
 function RosterSwap({ team, onSaved }) {
   const players = team?.players || []
@@ -98,7 +99,7 @@ function RosterSwap({ team, onSaved }) {
     <div key={p.id} className={`roster-swap-player ${isActive ? 'active-player' : 'bench-player'}`}>
       <div className="rsp-top-row">
         <div className="rsp-info">
-          <span className="rsp-name">{p.player}</span>
+          <span className="rsp-name"><PlayerAvatar player={p} />{p.player}</span>
           <span className={`role-badge ${(p.selected_role || p.role || 'default').toLowerCase().split(' ')[0]}`}>
             {p.selected_role || p.role || 'Unassigned'}
           </span>

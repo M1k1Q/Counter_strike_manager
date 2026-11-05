@@ -11,6 +11,6 @@ export function recapPlayers(season) {
 }
 
 export function recapDuration(player) {
-  if (!player) return 1400
-  return player.rank === 1 ? 3200 : player.rank <= 3 ? 2200 : 950
+  if (!player) return 2000
+  return player.rank === 1 ? 8000 : player.rank <= 3 ? 7000 : 6000
 }

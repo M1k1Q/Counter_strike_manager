@@ -1,0 +1,42 @@
+.player-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--accent-glow, #263247);
+  color: var(--text-primary, #fff);
+  font-size: 0.8rem;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-right: 10px;
+}
+
+.player-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player-profile-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.player-training-header {
+  flex-wrap: wrap;
+}
+
+.player-training-header > .btn-primary {
+  flex-shrink: 0;
+}
+
+.formation-pool-name,
+.rsp-name,
+.player-training-name {
+  display: inline-flex;
+  align-items: center;
+}

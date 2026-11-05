@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import PlayerAvatar from './PlayerAvatar'
 
 const MAX_FORM_BONUS = 2
 
@@ -9,30 +10,35 @@ function getDisplayRating(player) {
 
 function PlayerFormTraining({ team, onSaved }) {
   const players = team?.players || []
-  const [trainingId, setTrainingId] = useState(null)
+  const [training, setTraining] = useState(false)
+  const trainingInFlight = useRef(false)
   const [message, setMessage] = useState(null)
+  const needsTraining = players.some(player => Number(player.training_form_bonus || 0) < MAX_FORM_BONUS)
 
-  const handleTrain = async (player) => {
-    setTrainingId(player.id)
+  const handleTrainSquad = async () => {
+    if (trainingInFlight.current || !needsTraining) return
+    trainingInFlight.current = true
+    setTraining(true)
     setMessage(null)
 
     try {
-      const response = await fetch(`/players/${player.id}/form-train`, { method: 'POST' })
+      const response = await fetch('/players/form-train-squad', { method: 'POST' })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.detail || 'Unable to train player')
+      if (!response.ok) throw new Error(data.detail || 'Unable to train squad')
 
       setMessage({
-        text: `${data.player} trained. Current match-rating bonus: +${data.training_form_bonus.toFixed(1)}.`,
+        text: `${data.length} squad players refilled to +${MAX_FORM_BONUS} match Rating.`,
         type: 'success',
       })
-      if (onSaved) onSaved()
+      if (onSaved) await onSaved()
     } catch (err) {
       setMessage({
         text: err.message || 'Training failed. Please try again.',
         type: 'error',
       })
     } finally {
-      setTrainingId(null)
+      trainingInFlight.current = false
+      setTraining(false)
     }
   }
 
@@ -58,10 +64,14 @@ function PlayerFormTraining({ team, onSaved }) {
         <div>
           <h3>Form Training</h3>
           <p className="player-training-hint">
-            Refill any player to +2 match Rating at any time. The bonus decays by 35% after each
+            Refill your whole squad, including the bench, to +2 match Rating. The bonus decays by 35% after each
             completed series and never changes saved overall Rating.
           </p>
         </div>
+        <button className="btn-primary" type="button" disabled={training || !needsTraining}
+          onClick={handleTrainSquad}>
+          {training ? 'Training squad…' : needsTraining ? 'Train Entire Squad' : 'Squad Fully Charged'}
+        </button>
       </div>
 
       {message && (
@@ -72,14 +82,15 @@ function PlayerFormTraining({ team, onSaved }) {
         {players.map((player) => {
           const bonus = Number(player.training_form_bonus || 0)
           const capped = bonus >= MAX_FORM_BONUS
-          const isTraining = trainingId === player.id
           const baseRating = getDisplayRating(player)
           const effectiveRating = baseRating * Number(player.form || 1) + bonus
 
           return (
             <article key={player.id} className="player-training-card">
               <div className="player-training-card-top">
-                <div className="player-training-identity">
+                <div className="player-profile-identity">
+                  <PlayerAvatar player={player} />
+                  <div className="player-training-identity">
                   <span className="player-training-name">{player.player}</span>
                   <span className="player-training-meta">
                     {player.selected_role || player.role || 'Unassigned'}
@@ -88,6 +99,7 @@ function PlayerFormTraining({ team, onSaved }) {
                     {' · '}
                     OVR {baseRating.toFixed(0)}
                   </span>
+                  </div>
                 </div>
                 <span className={`player-training-status ${capped ? 'blocked' : 'ready'}`}>
                   {capped ? 'Fully charged' : 'Ready to refill'}
@@ -100,18 +112,6 @@ function PlayerFormTraining({ team, onSaved }) {
 
               <div className="player-training-controls-row form-training-controls">
                 <span className="form-bonus-value">+{bonus.toFixed(1)} / +{MAX_FORM_BONUS} match Rating</span>
-                <button
-                  className="btn-primary"
-                  type="button"
-                  disabled={capped || isTraining}
-                  onClick={() => handleTrain(player)}
-                >
-                  {isTraining
-                    ? 'Refilling…'
-                    : capped
-                      ? 'Fully Charged'
-                      : `Refill to +${MAX_FORM_BONUS}`}
-                </button>
               </div>
             </article>
           )

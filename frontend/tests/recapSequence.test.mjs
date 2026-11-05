@@ -25,10 +25,11 @@ test('short or empty seasons are handled without inventing ranking entries', () 
   assert.equal(recapPlayers({ players: [{ rank: 1 }] }).length, 1)
 })
 
-test('full ceremony is about 25 seconds and gives the podium longer reveals', () => {
+test('every player gets 5–8 seconds and the podium gets longer reveals', () => {
   const players = Array.from({ length: 20 }, (_, i) => ({ rank: i + 1 }))
   const duration = recapDuration(null) + players.reduce((sum, player) => sum + recapDuration(player), 0)
-  assert.ok(duration >= 24000 && duration <= 28000)
+  assert.ok(players.every(player => recapDuration(player) >= 5000 && recapDuration(player) <= 8000))
+  assert.equal(duration, 126000)
   assert.ok(recapDuration({ rank: 1 }) > recapDuration({ rank: 3 }))
   assert.ok(recapDuration({ rank: 3 }) > recapDuration({ rank: 4 }))
 })

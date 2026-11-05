@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import StatBar from './StatBar'
+import PlayerAvatar from './PlayerAvatar'
 
 function PlayerModal({
   player,
@@ -103,7 +104,9 @@ function PlayerModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className={`modal-card ${isNegotiationMode ? 'negotiation-modal' : ''}`} onClick={(e) => e.stopPropagation()}>
         <header className="modal-header">
-          <div>
+          <div className="player-profile-identity">
+            <PlayerAvatar player={player} size={80} eager />
+            <div>
             <h2>{player.player}</h2>
             <p className="modal-subtitle">
               {player.selected_role ? (
@@ -115,6 +118,7 @@ function PlayerModal({
                 player.role || 'Unassigned role'
               )}
             </p>
+            </div>
           </div>
           <button className="modal-close" type="button" onClick={onClose}>×</button>
         </header>

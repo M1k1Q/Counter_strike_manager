@@ -1,5 +1,6 @@
 import React from 'react'
 import StatBar from './StatBar'
+import PlayerAvatar from './PlayerAvatar'
 
 function TeamRoster({ team, searchQuery }) {
   const allPlayers = team.players || []
@@ -32,6 +33,7 @@ function TeamRoster({ team, searchQuery }) {
       <React.Fragment key={p.id}>
         <tr className={p.is_active_roster ? 'active-roster-row' : ''}>
           <td className="player-name">
+            <PlayerAvatar player={p} />
             {p.player}
             {p.is_igl && <span className="igl-tag">IGL</span>}
           </td>

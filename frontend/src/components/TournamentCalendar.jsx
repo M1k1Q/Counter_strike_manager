@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import './TournamentCalendar.css'
 import SeasonRecap from './SeasonRecap.jsx'
+import PlayerAvatar from './PlayerAvatar'
 import { completedSeasonYear } from './recapSequence.js'
 
 const MONTH_NAMES = [
@@ -18,7 +19,7 @@ function LineupTeam({ team, isUserTeam = false }) {
       <div className="lineup-player-list">
         {team.players.map((player) => (
           <article className="lineup-player" key={player.player_id}>
-            <strong className="lineup-player-name">{player.player_name}</strong>
+            <strong className="lineup-player-name"><PlayerAvatar player={player} />{player.player_name}</strong>
             <div className="lineup-player-details">
               <span><small>Rating</small><b>{player.rating}</b></span>
               <span><small>Form</small><b>{Number(player.form).toFixed(2)}×</b></span>
@@ -662,7 +663,7 @@ function TournamentCalendar({
                   ⚔️ {isExpandedMajor ? 'Bo3 groups & knockouts · Bo5 final' : `Series Format: ${activeTournament.format} (Best of X, Odd)`}
                 </span>
                 <span className="meta-tag">
-                  🎯 Top {activeTournament.min_rank_required} Cutoff
+                  🎯 {['B-Tier', 'C-Tier'].includes(activeTournament.tier) ? `Ranks #17–#${activeTournament.min_rank_required}` : `Top ${activeTournament.min_rank_required} Cutoff`}
                 </span>
               </div>
             </div>
@@ -1179,7 +1180,7 @@ function TournamentCalendar({
                         {tournamentStats.mvp && (
                           <div className="award-card mvp-card">
                             <div className="award-badge-label">🏆 Tournament MVP</div>
-                            <div className="award-player-name">{tournamentStats.mvp.player_name}</div>
+                            <div className="award-player-name"><PlayerAvatar player={tournamentStats.mvp} />{tournamentStats.mvp.player_name}</div>
                             <div className="award-team-name">{tournamentStats.mvp.team_name}</div>
                             <div className="award-stats-row">
                               <span>Rating: <strong className="rating-high">{tournamentStats.mvp.rating.toFixed(2)}</strong></span>
@@ -1194,7 +1195,7 @@ function TournamentCalendar({
                           {tournamentStats.evps?.map((evp) => (
                             <div key={evp.player_id} className="award-card evp-card">
                               <div className="award-badge-label">⭐ {evp.award}</div>
-                              <div className="award-player-name">{evp.player_name}</div>
+                              <div className="award-player-name"><PlayerAvatar player={evp} />{evp.player_name}</div>
                               <div className="award-team-name">{evp.team_name}</div>
                               <div className="award-stats-row">
                                 <span>Rating: <strong className={evp.rating >= 1.1 ? 'rating-high' : 'rating-med'}>{evp.rating.toFixed(2)}</strong></span>
@@ -1293,7 +1294,7 @@ function TournamentCalendar({
                                 <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>#{idx + 1}</td>
                                 <td>
                                   <span className="player-scoreboard-name">
-                                    {ps.player_name}
+                                    <PlayerAvatar player={ps} size={32} />{ps.player_name}
                                     {ps.role && <span className="role-pill">{ps.role}</span>}
                                   </span>
                                 </td>
@@ -1376,7 +1377,7 @@ function TournamentCalendar({
                       </td>
                       <td>{t.ranking_points.toLocaleString()} pts</td>
                       <td>
-                        {t.ranking <= (activeTournament?.min_rank_required || 8) ? (
+                        {t.ranking && t.ranking <= (activeTournament?.min_rank_required || 8) && (!['B-Tier', 'C-Tier'].includes(activeTournament?.tier) || t.ranking >= 17) ? (
                           <span style={{ color: '#34d399', fontWeight: 700 }}>Eligible</span>
                         ) : (
                           <span style={{ color: 'var(--text-muted)' }}>Uninvited</span>
@@ -1628,7 +1629,7 @@ function TournamentCalendar({
                                 <tr key={stat.player_id} className={isTop ? 'top-fragger-row' : ''}>
                                   <td>
                                     <span className="player-scoreboard-name">
-                                      {stat.player_name}
+                                      <PlayerAvatar player={stat} size={32} />{stat.player_name}
                                       {stat.role && <span className="role-pill">{stat.role}</span>}
                                       {!isOverall && stat.is_mvp && <span title="Map MVP">⭐</span>}
                                       {isTop && <span title="Top Fragger of the Map">🔥</span>}
@@ -1704,7 +1705,7 @@ function TournamentCalendar({
                                 <tr key={stat.player_id} className={isTop ? 'top-fragger-row' : ''}>
                                   <td>
                                     <span className="player-scoreboard-name">
-                                      {stat.player_name}
+                                      <PlayerAvatar player={stat} size={32} />{stat.player_name}
                                       {stat.role && <span className="role-pill">{stat.role}</span>}
                                       {!isOverall && stat.is_mvp && <span title="Map MVP">⭐</span>}
                                       {isTop && <span title="Top Fragger of the Map">🔥</span>}

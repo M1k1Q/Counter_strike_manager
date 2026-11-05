@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import StatBar from './StatBar'
+import PlayerAvatar from './PlayerAvatar'
 import { CustomSelect } from './CustomSelect'
 
 const SLOT_LABELS = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5']
@@ -120,6 +121,7 @@ function TeamFormation({ team, onSaved }) {
         <div key={i} className={`formation-slot ${player ? 'filled' : ''}`}>
           {player ? <>
             <div className="formation-slot-number">{label}</div>
+            <PlayerAvatar player={player} size={64} />
             <div className="formation-slot-name">{player.player}</div>
             <CustomSelect value={player.selected_role || ''} onChange={val => updateAssignment(player, { role: val })}
               options={[{ value: '', label: 'Auto' }, ...['Lurker', 'Entry', 'AWPer', 'Support'].map(role => ({ value: role, label: role }))]}
@@ -149,7 +151,7 @@ function TeamFormation({ team, onSaved }) {
           role="checkbox" aria-checked={isSelected} tabIndex={0}
           onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(p.id) } }}>
           <span className={`fp-check ${isSelected ? '' : 'empty'}`}>{isSelected ? '✓' : '○'}</span>
-          <span className="formation-pool-name">{p.player}</span>
+          <span className="formation-pool-name"><PlayerAvatar player={p} size={32} />{p.player}</span>
           <span className="formation-pool-role">{p.role || 'Unassigned'}{p.is_igl ? ' · IGL' : ''}</span>
           <span className="formation-pool-igl">IGL {Math.round(p.igl_score ?? 0)}%</span>
           <span className="formation-pool-rating">{getDisplayRating(p)}</span>

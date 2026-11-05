@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app import models
+from app.domain.player_roles import playing_role
 
 MAX_AI_ROSTER_SIZE = 5
 ACTIVE_TOURNAMENT_STATUS = "active"
@@ -76,23 +77,36 @@ def _normalize_role(role: str | None) -> str | None:
 
 
 def _player_role(player: models.Player) -> str | None:
-    return _normalize_role(player.selected_role) or _normalize_role(player.role)
+    role = playing_role(player)
+    return _normalize_role(role) or ("rifler" if "rifl" in role or player.is_igl or "igl" in (player.role or "").lower() else None)
+
+
+def transfer_role_group(player: models.Player) -> str | None:
+    """Rifle positions are interchangeable in the transfer market; AWP is separate."""
+    role = _player_role(player)
+    if role == "awper":
+        return "awper"
+    return "rifler" if role in ("entry", "support", "lurker", "rifler") else None
+
+
+def ai_upgrade_target(roster: list[models.Player], incoming: models.Player) -> models.Player | None:
+    group = transfer_role_group(incoming)
+    compatible = [player for player in roster if group and transfer_role_group(player) == group]
+    return min(compatible, key=lambda player: (player.Rating or 0, player.id)) if compatible else None
 
 
 def _release_ai_roster_slot(db: Session, team: models.Team, incoming_player: models.Player) -> None:
     roster = db.query(models.Player).filter(models.Player.team_id == team.id).all()
-    incoming_role = _player_role(incoming_player)
     while len(roster) >= MAX_AI_ROSTER_SIZE:
-        same_role = [
-            player for player in roster
-            if incoming_role and _player_role(player) == incoming_role
-        ]
-        release_pool = same_role or roster
-        released = min(release_pool, key=lambda player: (player.Rating or 0, player.id))
+        released = ai_upgrade_target(roster, incoming_player) or min(roster, key=lambda player: (player.Rating or 0, player.id))
+        was_igl = released.is_igl
         released.team_id = None
         released.is_active_roster = False
         released.is_igl = False
         roster.remove(released)
+        if was_igl and not any(player.is_igl for player in roster) and not incoming_player.is_igl:
+            captain = max([*roster, incoming_player], key=lambda player: (player.igl_score or 0, player.Rating or 0))
+            captain.is_igl = True
 
 
 def add_player_to_ai_roster(db: Session, team: models.Team, player: models.Player) -> None:
@@ -199,7 +213,7 @@ def handle_ai_replacement(
     transfer_fee = candidate.price
     add_player_to_ai_roster(db, team, candidate)
     team.budget -= transfer_fee
-
+    
 
 def _find_candidate(
     db: Session,
@@ -247,7 +261,10 @@ def _find_candidate(
         lost_role = _player_role(lost_player)
     role_fits = [
         player for player in affordable
-        if lost_role and _player_role(player) == lost_role
+        if lost_role and (
+            _player_role(player) == lost_role
+            or (lost_role in ("entry", "support", "lurker", "rifler") and transfer_role_group(player) == "rifler")
+        )
     ]
     if role_fits:
         return max(role_fits, key=lambda player: (player.team_id is None, player.Rating or 0))

@@ -9,6 +9,7 @@ import TeamFormation from './components/TeamFormation'
 import RosterSwap from './components/RosterSwap'
 import PlayerTraining from './components/PlayerTraining'
 import PlayerFormTraining from './components/PlayerFormTraining'
+import PlayerAvatar from './components/PlayerAvatar'
 import AIBuyoutInbox from './components/AIBuyoutInbox'
 import LoginPage from './components/LoginPage'
 import TournamentCalendar from './components/TournamentCalendar'
@@ -373,7 +374,7 @@ function App() {
     await refreshBuyoutOffers()
     return isListed
       ? `${player.player} removed from the transfer list.`
-      : `${player.player} listed for transfer. AI teams with a role need and a similar ranking can make offers.`
+      : `${player.player} listed for transfer. Nearby-ranked teams can fill squad vacancies; top-15 teams also pursue stars rated 90+ as lineup upgrades.`
   }
 
   const handleModalAction = async (player, customOfferAmount = null) => {
@@ -504,6 +505,9 @@ function App() {
 
         <div className="inbox-dock">
           <AIBuyoutInbox
+            onOfferUpdated={(updated) => setAiBuyoutOffers(current => current
+              .map(offer => offer.id === updated.id ? updated : offer)
+              .filter(offer => offer.status === 'pending'))}
             offers={aiBuyoutOffers}
             transferLockName={transferLockName}
             onRefresh={() => { refreshBuyoutOffers(); refreshAllData(); }}
@@ -741,7 +745,7 @@ function App() {
                                 <tbody>
                                   {selectedTeamPlayers.map((player) => (
                                     <tr key={player.id} onClick={() => setActivePlayer(player)} className="clickable-row">
-                                      <td>{player.player}</td>
+                                      <td><PlayerAvatar player={player} />{player.player}</td>
                                       <td>{player.role || 'Unassigned'}</td>
                                       <td>{getDisplayRating(player)}</td>
                                       <td>
@@ -801,7 +805,7 @@ function App() {
                                 <tbody>
                                   {freeAgents.map((player) => (
                                     <tr key={player.id} onClick={() => setActivePlayer(player)} className="clickable-row">
-                                      <td>{player.player}</td>
+                                      <td><PlayerAvatar player={player} />{player.player}</td>
                                       <td>{player.role || 'Unassigned'}</td>
                                       <td>{getDisplayRating(player)}</td>
                                       <td>{player.igl_score != null ? `${player.igl_score.toFixed(0)}%` : '—'}</td>
@@ -868,7 +872,7 @@ function App() {
                                           return (
                                             <tr key={player.id} onClick={() => setActivePlayer(player)} className="clickable-row">
                                               <td>
-                                                <span className="player-name-cell">{player.player}</span>
+                                                <span className="player-name-cell"><PlayerAvatar player={player} />{player.player}</span>
                                                 {isTopTeamStar && (
                                                   <span className="untouchable-tag" title="Franchise star – very hard to sign">★</span>
                                                 )}

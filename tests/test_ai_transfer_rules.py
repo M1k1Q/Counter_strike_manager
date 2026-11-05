@@ -66,7 +66,7 @@ def test_ai_replacement_uses_free_agent_without_raiding_another_team(db):
     assert sum(player.team_id == ai_team.id for player in db.query(models.Player).all()) == 5
 
 
-def test_ai_replacement_falls_back_to_best_affordable_player(db):
+def test_ai_replacement_prefers_any_rifler_over_unrelated_awper(db):
     human_team = models.Team(name="Human", ranking=1, budget=1_000_000)
     ai_team = models.Team(name="AI Buyer", ranking=15, budget=500_000)
     db.add_all([human_team, ai_team])
@@ -81,9 +81,10 @@ def test_ai_replacement_falls_back_to_best_affordable_player(db):
     db.commit()
 
     handle_ai_replacement(db, ai_team.id, lost_player.id)
-    db.refresh(best_available)
+    db.refresh(other_available)
 
-    assert best_available.team_id == ai_team.id
+    assert other_available.team_id == ai_team.id
+    assert best_available.team_id is None
 
 
 def test_ai_buyout_replaces_lowest_player_in_incoming_role_and_caps_roster(db):
@@ -175,6 +176,8 @@ def test_transfer_list_generates_role_and_rank_appropriate_competing_offers(db):
         buyer_two_roster,
         outside_roster,
         covered_roster,
+        *[make_player(f"Covered Rifle {i}", role_filled.id, 75, "entry") for i in range(3)],
+        make_player("Covered AWPer", role_filled.id, 80, "awper"),
     ])
     db.commit()
 
@@ -185,6 +188,74 @@ def test_transfer_list_generates_role_and_rank_appropriate_competing_offers(db):
     assert {offer.player_id for offer in offers} == {listed_player.id}
     assert {offer.ai_team_id for offer in offers} == {buyer_one.id, buyer_two.id}
     assert all(offer.current_offer <= offer.ai_team.budget for offer in offers)
+    assert generate_ai_buyout_offers(db)["generated"] == 0
+
+
+@pytest.mark.parametrize("role", ["entry", "support", "lurker", "rifler", "support igl"])
+def test_rifle_vacancy_accepts_any_rifle_position(db, role):
+    human = models.Team(name="Human", ranking=8, budget=10_000_000)
+    fut = models.Team(name="FUT", ranking=12, budget=10_000_000)
+    db.add_all([human, fut])
+    db.flush()
+    target = make_player("Twistzz", human.id, 89, role)
+    target.is_transfer_listed = True
+    db.add_all([models.Manager(name="Manager", team_id=human.id), target,
+                make_player("AWPer", fut.id, 86, "awper"),
+                *[make_player(f"Rifler {i}", fut.id, 80 + i, "entry") for i in range(3)]])
+    db.commit()
+    assert generate_ai_buyout_offers(db)["generated"] == 1
+    assert db.query(models.AIBuyoutOffer).one().player_id == target.id
+
+
+def test_top15_teams_bid_for_star_upgrades_across_rank_gap_and_release_weakest_rifler(db):
+    human = models.Team(name="Human", ranking=50, budget=20_000_000)
+    falcons = models.Team(name="Falcons", ranking=3, budget=20_000_000)
+    fut = models.Team(name="FUT", ranking=15, budget=20_000_000)
+    outside = models.Team(name="Outside", ranking=16, budget=20_000_000)
+    poorer = models.Team(name="Poor", ranking=5, budget=1)
+    stronger = models.Team(name="Stronger", ranking=1, budget=20_000_000)
+    db.add_all([human, falcons, fut, outside, poorer, stronger])
+    db.flush()
+    star = make_player("Twistzz", human.id, 92, "entry")
+    star.is_transfer_listed = True
+    karrigan = make_player("Karrigan", falcons.id, 77, "support igl")
+    karrigan.is_igl = True
+    karrigan.igl_score = 99
+    star.igl_score = 80
+    awper = make_player("Protected AWPer", falcons.id, 70, "awper")
+    db.add_all([models.Manager(name="Manager", team_id=human.id, budget=100), star, karrigan, awper,
+                *[make_player(f"Falcons Rifle {i}", falcons.id, 94 + i, "entry") for i in range(3)],
+                *[make_player(f"Stronger Rifle {i}", stronger.id, 95, "support") for i in range(4)],
+                make_player("Stronger AWP", stronger.id, 96, "awper")])
+    db.commit()
+    assert generate_ai_buyout_offers(db)["generated"] == 2
+    offers = db.query(models.AIBuyoutOffer).all()
+    assert {offer.ai_team_id for offer in offers} == {falcons.id, fut.id}
+    assert generate_ai_buyout_offers(db)["generated"] == 0
+    offer = next(offer for offer in offers if offer.ai_team_id == falcons.id)
+    before_budget = falcons.budget
+    _execute_sale(db, offer, offer.current_offer)
+    db.commit()
+    assert star.team_id == falcons.id
+    assert karrigan.team_id is None
+    assert awper.team_id == falcons.id
+    assert len(db.query(models.Player).filter_by(team_id=falcons.id).all()) == 5
+    assert any(player.is_igl for player in db.query(models.Player).filter_by(team_id=falcons.id))
+    assert falcons.budget == before_budget - offer.current_offer
+    assert next(other for other in offers if other.ai_team_id == fut.id).status == "collapsed"
+
+
+def test_superstar_offers_respect_tournament_locks(db):
+    human = models.Team(name="Human", ranking=50, budget=10_000_000)
+    buyer = models.Team(name="Locked Top 15", ranking=2, budget=10_000_000)
+    tournament = models.Tournament(name="Active", status="active")
+    db.add_all([human, buyer, tournament])
+    db.flush()
+    star = make_player("Listed Star", human.id, 95, "support")
+    star.is_transfer_listed = True
+    db.add_all([models.Manager(name="Manager", team_id=human.id), star,
+                models.TournamentParticipant(tournament_id=tournament.id, team_id=buyer.id, seed=1)])
+    db.commit()
     assert generate_ai_buyout_offers(db)["generated"] == 0
 
 

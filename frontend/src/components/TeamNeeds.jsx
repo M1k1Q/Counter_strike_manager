@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import PlayerAvatar from './PlayerAvatar';
 
 function TeamNeeds({ team, onRowClick, refreshTrigger }) {
   const [needs, setNeeds] = useState(null);
@@ -109,7 +110,7 @@ function TeamNeeds({ team, onRowClick, refreshTrigger }) {
                       <tbody>
                         {roleCandidates.slice(0, 5).map(player => (
                           <tr key={player.id} className="clickable-row" onClick={() => onRowClick(player)}>
-                            <td>{player.player}</td>
+                            <td><PlayerAvatar player={player} />{player.player}</td>
                             <td>{player.role || 'Unassigned'}</td>
                             <td>{getDisplayRating(player)}</td>
                             <td>{formatPrice(player.price)}</td>

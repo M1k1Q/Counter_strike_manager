@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import models
-from app.api.routes.players import train_owned_player, train_owned_player_form
+from app.api.routes.players import train_owned_player, train_owned_player_form, train_squad_form
 from app.api.schemas.player_schema import PlayerResponse, PlayerTrainingRequest
 from app.database import Base
 from app.services.player_development_service import (
@@ -43,6 +43,35 @@ def make_player(**overrides: Any) -> models.Player:
     }
     values.update(overrides)
     return models.Player(**values)
+
+
+def test_batch_form_training_includes_bench_and_excludes_other_teams(development_db: Session):
+    db = development_db
+    team = models.Team(name="User Squad", ranking=1)
+    other = models.Team(name="Other Squad", ranking=2)
+    db.add_all([team, other])
+    db.flush()
+    starter = make_player(team_id=team.id, is_active_roster=True, training_form_bonus=0.3)
+    bench = make_player(player="Bench", team_id=team.id, is_active_roster=False, training_form_bonus=0)
+    charged = make_player(player="Charged", team_id=team.id, training_form_bonus=2)
+    opponent = make_player(player="Opponent", team_id=other.id, training_form_bonus=0.5)
+    free_agent = make_player(player="Free Agent", training_form_bonus=0.7)
+    db.add_all([models.Manager(name="Manager", team_id=team.id), starter, bench, charged, opponent, free_agent])
+    db.commit()
+
+    trained = train_squad_form(db)
+    assert {p.id for p in trained} == {starter.id, bench.id, charged.id}
+    assert all(p.training_form_bonus == 2 for p in trained)
+    assert opponent.training_form_bonus == 0.5
+    assert free_agent.training_form_bonus == 0.7
+    assert starter.Rating == 94
+    assert all(p.training_form_bonus == 2 for p in train_squad_form(db))
+
+
+def test_batch_form_training_requires_selected_team(development_db: Session):
+    with pytest.raises(HTTPException) as error:
+        train_squad_form(development_db)
+    assert error.value.status_code == 409
 
 
 def test_potential_uses_age_and_season_rating():

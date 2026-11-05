@@ -12,6 +12,9 @@ from app.services.transfer_service import (
     active_tournament_team_ids,
     add_player_to_ai_roster,
     ensure_transfers_unlocked,
+    ai_upgrade_target,
+    transfer_role_group,
+    MAX_AI_ROSTER_SIZE,
 )
 
 router = APIRouter(prefix="/ai-buyouts", tags=["ai-buyouts"])
@@ -19,6 +22,8 @@ router = APIRouter(prefix="/ai-buyouts", tags=["ai-buyouts"])
 MAX_ROUNDS = 3
 AI_CEILING_MULTIPLIER = 2.5
 TRANSFER_RANK_RANGE = 10
+SUPERSTAR_RATING = 90
+SUPERSTAR_BUYER_MAX_RANK = 15
 
 
 class AIBuyoutOfferResponse(BaseModel):
@@ -88,39 +93,6 @@ def _build_response(offer: models.AIBuyoutOffer) -> dict:
     }
 
 
-def _listed_player_role(player: models.Player) -> str | None:
-    assigned_role = (player.selected_role or "").lower()
-    for role in ("awper", "entry", "support", "lurker"):
-        if role in assigned_role:
-            return role
-    if "igl" in assigned_role:
-        return "igl"
-
-    player_role = (player.role or "").lower()
-    for role in ("awper", "entry", "support", "lurker"):
-        if role in player_role:
-            return role
-    if player.is_igl or "igl" in player_role:
-        return "igl"
-    return None
-
-
-def _team_needs_role(db: Session, team: models.Team, role: str) -> bool:
-    roster = db.query(models.Player).filter(models.Player.team_id == team.id).all()
-    return not any(
-        _listed_player_role(player) == role
-        or (
-            role == "igl"
-            and (
-                player.is_igl
-                or "igl" in (player.selected_role or "").lower()
-                or "igl" in (player.role or "").lower()
-            )
-        )
-        for player in roster
-    )
-
-
 @router.post("/generate")
 def generate_ai_buyout_offers(db: Session = Depends(get_db)):
     manager = db.query(models.Manager).first()
@@ -156,34 +128,41 @@ def generate_ai_buyout_offers(db: Session = Depends(get_db)):
         models.Team.id != manager_team_id,
         models.Team.ranking.isnot(None),
     ).all()
+    rosters = {team.id: [] for team in ai_teams}
+    if rosters:
+        for player in db.query(models.Player).filter(models.Player.team_id.in_(list(rosters))).all():
+            rosters[player.team_id].append(player)
 
     generated = 0
     for ai_team in ai_teams:
         if ai_team.id in locked_team_ids or ai_team.id in already_pending_team_ids:
             continue
 
-        if manager_team.ranking is None or abs(ai_team.ranking - manager_team.ranking) > TRANSFER_RANK_RANGE:
-            continue
-
         ai_budget = ai_team.budget or 0
+        roster = rosters[ai_team.id]
+        in_rank_range = manager_team.ranking is not None and abs(ai_team.ranking - manager_team.ranking) <= TRANSFER_RANK_RANGE
         affordable_targets = []
         for player in listed_players:
-            role = _listed_player_role(player)
-            if (
-                role
-                and (player.id, ai_team.id) not in already_pending_pairs
-                and player.price <= ai_budget
-                and _team_needs_role(db, ai_team, role)
-            ):
+            group = transfer_role_group(player)
+            superstar_interest = (player.Rating or 0) >= SUPERSTAR_RATING and 1 <= ai_team.ranking <= SUPERSTAR_BUYER_MAX_RANK
+            if not group or (player.id, ai_team.id) in already_pending_pairs or player.price > ai_budget:
+                continue
+            if not in_rank_range and not superstar_interest:
+                continue
+            group_count = sum(transfer_role_group(incumbent) == group for incumbent in roster)
+            has_vacancy = len(roster) < MAX_AI_ROSTER_SIZE and group_count < (1 if group == "awper" else 4)
+            incumbent = ai_upgrade_target(roster, player)
+            improves_lineup = incumbent is not None and (player.Rating or 0) > (incumbent.Rating or 0)
+            if has_vacancy or (superstar_interest and improves_lineup):
                 affordable_targets.append(player)
 
         if not affordable_targets:
             continue
 
         target = max(affordable_targets, key=lambda player: player.Rating or 0)
-        multiplier = round(random.uniform(1.0, 1.3), 2)
+        multiplier = round(random.uniform(1.0, 1.9), 5)
         initial_offer = min(int(target.price * multiplier), ai_budget)
-
+        
         new_offer = models.AIBuyoutOffer(
             player_id=target.id,
             ai_team_id=ai_team.id,

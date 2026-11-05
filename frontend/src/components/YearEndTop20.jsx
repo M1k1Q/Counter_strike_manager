@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './YearEndTop20.css'
 import SeasonRecap from './SeasonRecap.jsx'
+import PlayerAvatar from './PlayerAvatar'
 
 function YearEndTop20() {
   const [seasons, setSeasons] = useState([])
@@ -120,7 +121,7 @@ function YearEndTop20() {
                         setSelectedPlayer(player)
                       }}
                     >
-                      {player.player_name}
+                      <PlayerAvatar player={player} />{player.player_name}
                     </button>
                     {player.role && <span className="year-end-role">{player.role}</span>}
                   </td>
@@ -160,7 +161,7 @@ function YearEndTop20() {
             </button>
             <header className="year-player-modal-header">
               <span className="year-player-modal-rank">#{selectedPlayer.rank} · {activeYear}</span>
-              <h2 id="year-player-modal-title">{selectedPlayer.player_name}</h2>
+              <h2 id="year-player-modal-title"><PlayerAvatar player={selectedPlayer} size={64} eager />{selectedPlayer.player_name}</h2>
               <p>
                 {selectedPlayer.team_name}
                 {selectedPlayer.role ? ` · ${selectedPlayer.role}` : ''}

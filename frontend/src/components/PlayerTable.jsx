@@ -1,3 +1,5 @@
+import PlayerAvatar from './PlayerAvatar'
+
 function PlayerTable({ players, loading, error, onRowClick }) {
   // Helper: overall badge class
   function overallClass(val) {
@@ -98,6 +100,7 @@ function PlayerTable({ players, loading, error, onRowClick }) {
               >
                 <td style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{index + 1}</td>
                 <td className="player-name">
+                  <PlayerAvatar player={player} />
                   {player.player}
                   {player.igl_score >= 70 && <span className="igl-tag">IGL</span>}
                 </td>

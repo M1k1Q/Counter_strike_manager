@@ -12,29 +12,30 @@ CIRCUIT_EVENTS = [
     {"month": 1, "name": "IEM Krakow", "tier": TournamentTier.S_TIER, "prize": 1_000_000, "min_rank": 16, "format": "Bo5"},
     {"month": 2, "name": "BLAST Premier Spring Groups", "tier": TournamentTier.A_TIER, "prize": 400_000, "min_rank": 16, "format": "Bo5"},
     {"month": 3, "name": "ESL Pro League Spring", "tier": TournamentTier.S_TIER, "prize": 750_000, "min_rank": 16, "format": "Bo5"},
+    {"month": 4, "name": "IEM Sydney", "tier": TournamentTier.A_TIER, "prize": 500_000, "min_rank": 16, "format": "Bo5"},
     {"month": 5, "name": "PGL CS2 Major", "tier": TournamentTier.MAJOR, "prize": 1_250_000, "min_rank": 32, "format": "Bo5"},
     {"month": 6, "name": "BLAST Premier Spring Final", "tier": TournamentTier.S_TIER, "prize": 500_000, "min_rank": 16, "format": "Bo5"},
     {"month": 7, "name": "IEM Cologne", "tier": TournamentTier.S_TIER, "prize": 1_000_000, "min_rank": 16, "format": "Bo5"},
-    {"month": 8, "name": "Roobet Cup Global", "tier": TournamentTier.A_TIER, "prize": 350_000, "min_rank": 16, "format": "Bo5"},
-    {"month": 9, "name": "ESL Pro League Autumn", "tier": TournamentTier.S_TIER, "prize": 750_000, "min_rank": 16, "format": "Bo5"},
+    {"month": 8, "name": "ESL Pro League Autumn", "tier": TournamentTier.S_TIER, "prize": 750_000, "min_rank": 16, "format": "Bo5"},
+    {"month": 9, "name": "IEM Rio", "tier": TournamentTier.A_TIER, "prize": 500_000, "min_rank": 16, "format": "Bo5"},
     {"month": 10, "name": "Thunderpick World Championship", "tier": TournamentTier.A_TIER, "prize": 600_000, "min_rank": 16, "format": "Bo5"},
     {"month": 11, "name": "Perfect World Winter Major", "tier": TournamentTier.MAJOR, "prize": 1_250_000, "min_rank": 32, "format": "Bo5"},
     {"month": 12, "name": "BLAST Premier World Final", "tier": TournamentTier.S_TIER, "prize": 1_000_000, "min_rank": 16, "format": "Bo5"},
 ]
 
 LOWER_TIER_EVENTS = [
-    {"month": 1, "name": "CCT Season 2 Series", "tier": TournamentTier.B_TIER, "prize": 100_000, "min_rank": 40, "format": "Bo3"},
-    {"month": 2, "name": "ESL Challenger Katowice", "tier": TournamentTier.B_TIER, "prize": 120_000, "min_rank": 40, "format": "Bo3"},
-    {"month": 3, "name": "DraculaN Invitational", "tier": TournamentTier.C_TIER, "prize": 75_000, "min_rank": 50, "format": "Bo3"},
-    {"month": 4, "name": "Stake Ranked Open Spring", "tier": TournamentTier.C_TIER, "prize": 60_000, "min_rank": 60, "format": "Bo3"},
-    {"month": 5, "name": "CCT Regional Cup", "tier": TournamentTier.B_TIER, "prize": 100_000, "min_rank": 40, "format": "Bo3"},
-    {"month": 6, "name": "ESL Challenger Jönköping", "tier": TournamentTier.B_TIER, "prize": 120_000, "min_rank": 40, "format": "Bo3"},
-    {"month": 7, "name": "DraculaN Summer Clash", "tier": TournamentTier.C_TIER, "prize": 75_000, "min_rank": 50, "format": "Bo3"},
-    {"month": 8, "name": "Stake Ranked Masters", "tier": TournamentTier.C_TIER, "prize": 60_000, "min_rank": 60, "format": "Bo3"},
-    {"month": 9, "name": "CCT Global Finals Qualifier", "tier": TournamentTier.B_TIER, "prize": 100_000, "min_rank": 40, "format": "Bo3"},
-    {"month": 10, "name": "ESL Challenger Atlanta", "tier": TournamentTier.B_TIER, "prize": 120_000, "min_rank": 40, "format": "Bo3"},
-    {"month": 11, "name": "DraculaN Winter Showdown", "tier": TournamentTier.C_TIER, "prize": 75_000, "min_rank": 50, "format": "Bo3"},
-    {"month": 12, "name": "Stake Ranked Championship", "tier": TournamentTier.C_TIER, "prize": 80_000, "min_rank": 60, "format": "Bo3"},
+    {"month": 1, "name": "CCT Season 2 Series", "tier": TournamentTier.B_TIER, "prize": 100_000, "max_rank": 17, "min_rank": 40, "format": "Bo3"},
+    {"month": 2, "name": "ESL Challenger Katowice", "tier": TournamentTier.B_TIER, "prize": 120_000, "max_rank": 17, "min_rank": 40, "format": "Bo3"},
+    {"month": 3, "name": "DraculaN Invitational", "tier": TournamentTier.C_TIER, "prize": 75_000, "max_rank": 17, "min_rank": 50, "format": "Bo3"},
+    {"month": 4, "name": "Stake Ranked Open Spring", "tier": TournamentTier.C_TIER, "prize": 60_000, "max_rank": 17, "min_rank": 60, "format": "Bo3"},
+    {"month": 5, "name": "CCT Regional Cup", "tier": TournamentTier.B_TIER, "prize": 100_000, "max_rank": 17, "min_rank": 40, "format": "Bo3"},
+    {"month": 6, "name": "ESL Challenger Jönköping", "tier": TournamentTier.B_TIER, "prize": 120_000, "max_rank": 17, "min_rank": 40, "format": "Bo3"},
+    {"month": 7, "name": "DraculaN Summer Clash", "tier": TournamentTier.C_TIER, "prize": 75_000, "max_rank": 17, "min_rank": 50, "format": "Bo3"},
+    {"month": 8, "name": "Stake Ranked Masters", "tier": TournamentTier.C_TIER, "prize": 60_000, "max_rank": 17, "min_rank": 60, "format": "Bo3"},
+    {"month": 9, "name": "CCT Global Finals Qualifier", "tier": TournamentTier.B_TIER, "prize": 100_000, "max_rank": 17, "min_rank": 40, "format": "Bo3"},
+    {"month": 10, "name": "ESL Challenger Atlanta", "tier": TournamentTier.B_TIER, "prize": 120_000, "max_rank": 17, "min_rank": 40, "format": "Bo3"},
+    {"month": 11, "name": "DraculaN Winter Showdown", "tier": TournamentTier.C_TIER, "prize": 75_000, "max_rank": 17, "min_rank": 50, "format": "Bo3"},
+    {"month": 12, "name": "Stake Ranked Championship", "tier": TournamentTier.C_TIER, "prize": 80_000, "max_rank": 17, "min_rank": 60, "format": "Bo3"},
 ]
 
 ALL_SCHEDULED_EVENTS = CIRCUIT_EVENTS + LOWER_TIER_EVENTS
@@ -190,21 +191,35 @@ class TournamentService:
             )
         return t
 
+    @staticmethod
+    def event_max_rank(tournament: models.Tournament) -> int:
+        """Best allowed world-rank number; B/C events exclude the top 16.
+
+        Resolve by tier as well as schedule so existing saves and custom lower
+        tier events receive the same rule without a database migration.
+        """
+        if tournament.tier not in (TournamentTier.B_TIER.value, TournamentTier.C_TIER.value):
+            return 1
+        event = next((event for event in LOWER_TIER_EVENTS if event["name"] == tournament.name), {})
+        return max(17, event.get("max_rank", 17))
+
     def check_invite_status(self, tournament: models.Tournament, team: Optional[models.Team]) -> Dict[str, Any]:
         """Check if a team is invited to a tournament based on ranking cutoff."""
         if not team:
             return {"invited": False, "reason": "No team selected", "cutoff": tournament.min_rank_required}
 
         cutoff = 32 if tournament.tier == TournamentTier.MAJOR.value else tournament.min_rank_required or 8
-        is_invited = bool(team.ranking and team.ranking <= cutoff)
+        max_rank = self.event_max_rank(tournament)
+        is_invited = bool(team.ranking and max_rank <= team.ranking <= cutoff)
+        rank_band = f"Ranks #{max_rank}–#{cutoff}" if max_rank > 1 else f"Top {cutoff}"
         return {
             "invited": is_invited,
             "team_rank": team.ranking,
             "cutoff": cutoff,
             "reason": (
-                f"Rank #{team.ranking} qualifies (Top {cutoff} invited)"
+                f"Rank #{team.ranking} qualifies ({rank_band} invited)"
                 if is_invited
-                else f"Rank #{team.ranking} is outside the Top {cutoff} invite cutoff"
+                else f"Rank #{team.ranking} is outside the {rank_band} invite range"
             ),
         }
 
@@ -260,6 +275,11 @@ class TournamentService:
         if is_major:
             tournament.min_rank_required = cutoff
         is_lower_tier = tournament.tier in [TournamentTier.B_TIER.value, TournamentTier.C_TIER.value]
+        max_rank = self.event_max_rank(tournament)
+        if is_lower_tier:
+            eligible_teams = [team for team in eligible_teams
+                              if team.ranking and max_rank <= team.ranking <= cutoff]
+            eligible_team_ids = {team.id for team in eligible_teams}
 
         # Fill the event field after reserving the eligible manager slot:
         invited_teams = []
@@ -273,8 +293,8 @@ class TournamentService:
                     invited_teams.append(user_team)
                     user_included = True
             else:
-                # Lower-tier event: user qualifies if within ranking range (e.g. > 16 and <= cutoff, or if cutoff allows)
-                if user_team.ranking and user_team.ranking <= cutoff:
+                # The manager follows the same #17+ eligibility rule as AI teams.
+                if user_team.ranking and max_rank <= user_team.ranking <= cutoff:
                     invited_teams.append(user_team)
                     user_included = True
 

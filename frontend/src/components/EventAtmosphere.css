@@ -1,0 +1,32 @@
+/* Small SVG geometry + composited CSS layers. No WebGL, textures or frame loop. */
+:root { --scene-primary: var(--accent); --scene-secondary: #3568d4; --scene-shards: .24; --scene-ribbons: .12; --scene-orbit: .18; }
+:root[data-event-theme='iem'] { --scene-primary: #164bff; --scene-secondary: #38baff; --scene-shards: .3; --scene-ribbons: .05; --scene-orbit: .65; }
+:root[data-event-theme='esl-pro-league'] { --scene-primary: #a7d916; --scene-secondary: #dbf65a; --scene-shards: .6; --scene-ribbons: .04; --scene-orbit: .05; }
+:root[data-event-theme='blast'], :root[data-event-theme='rivals'] { --scene-primary: #2c54e8; --scene-secondary: #f04b76; --scene-shards: .12; --scene-ribbons: .5; --scene-orbit: .08; }
+:root[data-event-theme='major'] { --scene-primary: #287bcc; --scene-secondary: #f0ca65; --scene-shards: .3; --scene-orbit: .48; }
+:root[data-event-theme='roobet'] { --scene-primary: #8a4be1; --scene-secondary: #c66af2; --scene-ribbons: .32; }
+:root[data-event-theme='thunderpick'] { --scene-primary: #19b7d7; --scene-secondary: #d9ba39; --scene-shards: .4; }
+body::before { opacity: .45; }
+.event-atmosphere { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; contain: strict; --scene-x: 0px; --scene-y: 0px; }
+.atmosphere-parallax { position: absolute; inset: -24px; transform: translate3d(var(--scene-x),var(--scene-y),0); transition: transform .8s cubic-bezier(.2,.7,.2,1); }
+.atmosphere-shards { position: absolute; inset: 0; width: 100%; height: 100%; opacity: var(--scene-shards); transition: opacity .8s; }
+.shard-bank { fill: var(--scene-primary); stroke: var(--scene-secondary); stroke-width: .5; animation: shard-float 24s ease-in-out infinite alternate; }
+.shard-bank path:nth-child(3n) { fill: var(--scene-secondary); opacity: .6; }
+.shard-bank path:nth-child(2n) { opacity: .25; }
+.shard-bank-right { animation-delay: -12s; }
+.atmosphere-orbit { position: absolute; left: 12%; bottom: -53vw; width: 96vw; height: 70vw; opacity: var(--scene-orbit); animation: orbit-drift 30s ease-in-out infinite alternate; }
+.atmosphere-globe { position: absolute; inset: 0; border-radius: 50%; border-top: 1px solid var(--scene-secondary); background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb,var(--scene-primary) 60%,transparent),transparent 58%); box-shadow: 0 -16px 65px -25px var(--scene-primary), inset 0 16px 50px -30px var(--scene-secondary); }
+.atmosphere-horizon { position: absolute; left: 8%; right: 8%; top: 0; height: 30%; border-radius: 50%; border-top: 1px solid var(--scene-secondary); transform: rotate(-8deg); opacity: .5; }
+.atmosphere-ribbon { position: absolute; width: 105vw; height: 28vw; border-radius: 50%; opacity: var(--scene-ribbons); background: radial-gradient(ellipse,transparent 42%,var(--scene-primary) 52%,var(--scene-secondary) 60%,transparent 72%); animation: ribbon-drift 26s ease-in-out infinite alternate; }
+.ribbon-one { top: -16vw; right: -35vw; transform: rotate(-25deg); }
+.ribbon-two { bottom: -22vw; left: -40vw; animation-delay: -13s; }
+.atmosphere-grid { position: absolute; left: 0; right: 0; bottom: -10%; height: 37%; background-image: linear-gradient(var(--scene-primary) 1px,transparent 1px),linear-gradient(90deg,var(--scene-primary) 1px,transparent 1px); background-size: 72px 72px; transform: perspective(500px) rotateX(65deg); transform-origin: center bottom; opacity: .045; mask-image: linear-gradient(transparent,#000); }
+.atmosphere-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 40%,var(--bg-primary) 8%,transparent 80%); opacity: .7; }
+.atmosphere-toggle { position: fixed; bottom: 14px; left: 14px; z-index: 40; display: flex; gap: .4rem; align-items: center; padding: .45rem .65rem; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-secondary); color: var(--text-secondary); font-size: .65rem; cursor: pointer; }
+.atmosphere-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.event-atmosphere[data-motion='off'] *, .event-atmosphere[data-sleeping='true'] * { animation-play-state: paused; }
+@keyframes shard-float { from { transform: translateY(-8px); } to { transform: translateY(14px); } }
+@keyframes orbit-drift { from { transform: translate3d(-12px,0,0) rotate(-3deg); } to { transform: translate3d(12px,-12px,0) rotate(3deg); } }
+@keyframes ribbon-drift { from { transform: translate3d(-12px,0,0) rotate(-20deg); } to { transform: translate3d(18px,16px,0) rotate(-12deg); } }
+@media (max-width: 700px), (pointer: coarse) { .atmosphere-parallax { transform: none; } .atmosphere-grid { display: none; } .atmosphere-shards { opacity: calc(var(--scene-shards) * .65); } .atmosphere-orbit { width: 150vw; height: 100vw; bottom: -75vw; left: -25vw; } }
+@media (prefers-reduced-motion: reduce) { .event-atmosphere *, .event-atmosphere *::before { animation: none !important; transition: none !important; } .atmosphere-parallax { transform: none !important; } }

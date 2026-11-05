@@ -153,6 +153,19 @@ def train_owned_player(
     return player
 
 
+@router.post("/players/form-train-squad", response_model=List[PlayerResponse])
+def train_squad_form(db: Session = Depends(get_db)):
+    manager = db.query(models.Manager).first()
+    if not manager or not manager.team_id:
+        raise HTTPException(status_code=409, detail="Start a career and select a team before training players")
+
+    players = db.query(models.Player).filter(models.Player.team_id == manager.team_id).all()
+    for player in players:
+        train_player_form(player)
+    db.commit()
+    return players
+
+
 @router.post("/players/{player_id}/form-train", response_model=PlayerResponse)
 def train_owned_player_form(player_id: int, db: Session = Depends(get_db)):
     player = db.query(models.Player).filter(models.Player.id == player_id).first()
